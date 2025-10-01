@@ -1,8 +1,7 @@
 source("dlnm/dlnm_sliding_window/global.R")
 source("dlnm/dlnm_sliding_window/dlnm_model_function.R")
-source("dlnm/dlnm_sliding_window/dlnm_sliding_model_function.R")
-source("dlnm/dlnm_sliding_window/summarise_events_function.R")
-source("dlnm/dlnm_sliding_window/create_rr_plot.R")
+source("functions/summarise_events_function.R")
+source("functions/create_rr_plot.R")
 
 event <- "Hospital admissions" # "Deaths", "Hospital admissions"
 cause <-  "Heat-related causes" # "All causes", "Heat-related causes"
