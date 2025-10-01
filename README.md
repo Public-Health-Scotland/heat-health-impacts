@@ -8,6 +8,9 @@ This repository contains the code used by the PHS Climate Analyst team to run a 
 ## Layout
 Each folder is explained below:
 
+- **condition_analysis**:
+Contains scripts for data linkage and analysis of heat-related hospitalisation causes in Scotland.
+
 - **data_linkage**:
 Contains scripts for linking climate data (e.g. regional temperatures) from the Office of National Statistics (ONS), population and deprivation data with both Scottish a) hospitalisations and b) deaths data.
 
