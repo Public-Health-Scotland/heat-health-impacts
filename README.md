@@ -12,7 +12,7 @@ Each folder is explained below:
 Contains scripts for data linkage and analysis of heat-related hospitalisation causes in Scotland.
 
 - **data_linkage**:
-Contains scripts for linking climate data (e.g. regional temperatures) from the Office of National Statistics (ONS), population and deprivation data with both Scottish a) hospitalisations and b) deaths data.
+Contains scripts for linking climate data (e.g. regional temperatures) from the Environmental Public Health Surveillance System (EPHSS), population and deprivation data with both Scottish a) hospitalisations and b) deaths data.
 
 - **dlnm**:
 Contains the code used in the DLNM, across various scripts.
