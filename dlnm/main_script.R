@@ -1,10 +1,25 @@
-source("dlnm/dlnm_sliding_window/global.R")
-source("dlnm/dlnm_sliding_window/dlnm_model_function.R")
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# main_script.R
+# July 2025
+# Al Morgan
+# 
+# This script acts as a main hub from which to run the DLNM model and save out
+# the resulting data and plots. Both normal and sliding-window versions of the
+# model can be run from here.
+#
+# To use, adjust the variables at the start of the script (event, cause etc) as
+# needed, then run the entire script. If running models on new/refreshed data,
+# make sure to delete the relevant DLNM result folder(s) first to allow the DLNM
+# code to re-run.
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+source("setup/dlnm_setup.R")
+source("dlnm/dlnm_model_function.R")
+source("dlnm/dlnm_sliding_model_function.R")
 source("functions/summarise_events_function.R")
 source("functions/create_rr_plot.R")
 
-event <- "Hospital admissions" # "Deaths", "Hospital admissions"
-cause <-  "Heat-related causes" # "All causes", "Heat-related causes"
+event <- "Deaths" # "Deaths", "Hospital admissions"
+cause <-  "All causes" # "All causes", "Heat-related causes"
 geog <- "NHS Health board" # "NHS Health board", "Local authority"
 region <-  "Scotland"
 vuln_breakdown <- "Age" # "Age", "Sex", "Deprivation index"
@@ -78,6 +93,7 @@ if (window_size == "All years"){
     att_rates_region <- dlnm_results[7][[1]]  #  attributable rates for each region and each year
     aic <- dlnm_results[8][[1]] # Akaike's An Information Criterion
     event_count_summary <- dlnm_results[9][[1]] # dataframe of total counts by e.g. age, sex, simd
+    model_residuals <- dlnm_results[10][[1]] # model residuals which can be put into a boxplot
     
     # Save results as CSV files
     write_csv(temp_thresholds, paste0(results_filepath, "/temp_thresholds.csv"))
@@ -160,33 +176,12 @@ if (window_size == "All years"){
 }
 
 
-region_filter <- region # need to do this for filters
+region_filter <- region # need to do this for data filtering in plot creation
 
-### Testing zone for rr plot function - need to set up a way that even when the
-## sliding window isn't being used, the function takes a window year of e.g. NA
-# source("dlnm/dlnm_sliding_window/create_rr_plot.R")
-# debug(create_rr_plot)
-# window_yr <- 2014
-# # all_years
-# rr_plot <- create_rr_plot(hist_list, rr_list, temp_thresholds, region_filter, window_size)
-# rr_plot
-# # sliding window
-# rr_plot <- create_rr_plot(hist_year_list, rr_year_list, temp_thresholds_year_list, region_filter, window_size, window_yr) +
-#   labs(
-#     subtitle = str_to_title(paste(region_filter, event, "by", vuln_breakdown,
-#                      "-", vuln_group))
-#   )
-# rr_plot
-# ###
-# 
-# ggsave(plot = rr_plot, filename = paste0(results_filepath, "/", window_yr, "/rr_plot.png"),
-#        width = 6, height = 4)
-
-
+# Plots for sliding window models
 if(window_size != "All years"){
-  # Plot the changing thresholds ONLY FOR SLIDING WINDOW MODELS
-  
-  # Create empty tibble
+  # Plot the changing thresholds on relative risk plots
+  ## Create empty tibble
   threshold_yrs <- tibble(
     year = integer(),
     opt_temp_range_low = numeric(),
@@ -195,7 +190,7 @@ if(window_size != "All years"){
     rr_increase_temp = numeric(),
     high_risk_temp = numeric(),
   )
-  # Loop through years to add threshold data to tibble
+  ## Loop through years to add threshold data to tibble
   for (window_yr in starting_year:2024) {
     df <- temp_thresholds_year_list[as.character(window_yr)][[1]] %>% 
       filter(region == region_filter)
@@ -211,7 +206,7 @@ if(window_size != "All years"){
       )
   }
   
-  # Plot
+  ## Plot
   thresholds_plot <- threshold_yrs %>% 
     ggplot(aes(x = year)) +
     geom_ribbon(aes(ymin = opt_temp_range_low, ymax = opt_temp_range_high),
@@ -234,8 +229,7 @@ if(window_size != "All years"){
   
   ggsave(plot = thresholds_plot, filename = paste0(results_filepath, "/thresholds_over_time.png"),
          width = 6, height = 4)
-  # Plot RR curve for each year outputted by the sliding window
-  
+  ## Plot RR curve for each selected years outputted by the sliding window
   
   window_yr <- 2014
   
@@ -247,37 +241,37 @@ if(window_size != "All years"){
     filter(year == window_yr) %>% 
     mutate(region = region_filter)
   
-  # Maximum values for histogram plot
+  ## Maximum values for histogram plot
   max_hist <- max(hist_data$counts)
   max_count <- ceiling(max(hist_data$counts) / 50) * 50
   
   heatwave_day <-  25
   
   rr_plot <- ggplot() +
-    # Insert green panel for optimal weather range
+    ## Insert green panel for optimal weather range
     annotate("rect", fill = phs_colors("phs-green-30"), alpha = 0.5,
              xmin = threshold_data %>% filter(region == region_filter) %>% pull(opt_temp_range_low), xmax = threshold_data %>% filter(region == region_filter) %>% pull(opt_temp_range_high),
              ymin = 0, ymax = Inf) +
-    # Histogram Layer (Plotted First)
+    ## Histogram Layer (Plotted First)
     geom_col(data = hist_data, aes(x = temp_c, y = density *3.6),
              # fill = "grey80", color = "grey60"
              fill = phs_colors("phs-purple-80"), color = "black"
     ) +
-    # Relative Risk Curve
+    ## Relative Risk Curve
     geom_ribbon(data = rr_data, aes(x = temp_c, ymin = lower, ymax = upper),
                 fill = phs_colors("phs-rust-30")) +  # Confidence interval
     geom_line(data = rr_data, aes(x = temp_c, y = rr), color = "black", linewidth = 1) +
     geom_vline(xintercept = threshold_data %>% filter(region == region_filter) %>% pull(risk_increase_temp), linetype = "solid", color = phs_colors("phs-blue")) +
     geom_vline(xintercept = threshold_data %>% filter(region == region_filter) %>% pull(high_risk_temp), linetype = "solid", color = phs_colors("phs-rust")) +
     geom_vline(xintercept = heatwave_day, linetype = "dashed", color = phs_colors("phs-purple")) +
-    # Horizontal RR = 1 Reference Lines
+    ## Horizontal RR = 1 Reference Lines
     geom_hline(yintercept = 1, linetype = "solid", color = "black")+
-    # Formatting y-axis with secondary axis for counts
+    ## Formatting y-axis with secondary axis for counts
     scale_y_continuous(
       limits = c(0, 1.5),  # Match ylim from base R
       sec.axis = sec_axis(~ .* max_hist , name = "No. of Days", breaks = seq(0, max_count, by = 50))
     ) +
-    # Theme and labels
+    ## Theme and labels
     theme_minimal() +
     labs(
       subtitle = paste0(region_filter, " ", str_to_lower(event), ": ", as.character(window_yr), " (", window_size, "-year window)"),
@@ -298,6 +292,7 @@ if(window_size != "All years"){
   ggsave(plot = rr_plot, filename = paste0(results_filepath, "/", window_yr, "/rr_plot.png"),
          width = 6, height = 4)
   
+  ## Repeat with final year
   window_yr <- 2024
   
   hist_data <- hist_year_list[[as.character(window_yr)]][[region]] %>%
@@ -308,37 +303,36 @@ if(window_size != "All years"){
     filter(year == window_yr) %>% 
     mutate(region = region_filter)
   
-  # Maximum values for histogram plot
+  ## Maximum values for histogram plot
   max_hist <- max(hist_data$counts)
   max_count <- ceiling(max(hist_data$counts) / 50) * 50
   
   heatwave_day <-  25
   
   rr_plot <- ggplot() +
-    # Insert green panel for optimal weather range
+    ## Insert green panel for optimal weather range
     annotate("rect", fill = phs_colors("phs-green-50"), alpha = 0.5,
              xmin = threshold_data %>% filter(region == region_filter) %>% pull(opt_temp_range_low), xmax = threshold_data %>% filter(region == region_filter) %>% pull(opt_temp_range_high),
              ymin = 0, ymax = Inf) +
-    # Histogram Layer (Plotted First)
+    ## Histogram Layer (Plotted First)
     geom_col(data = hist_data, aes(x = temp_c, y = density *3.6),
-             # fill = "grey80", color = "grey60"
              fill = phs_colors("phs-purple-80"), color = "black"
     ) +
-    # Relative Risk Curve
+    ## Relative Risk Curve
     geom_ribbon(data = rr_data, aes(x = temp_c, ymin = lower, ymax = upper),
                 fill = phs_colors("phs-rust-30")) +  # Confidence interval
     geom_line(data = rr_data, aes(x = temp_c, y = rr), color = "black", linewidth = 1) +
     geom_vline(xintercept = threshold_data %>% filter(region == region_filter) %>% pull(risk_increase_temp), linetype = "solid", color = phs_colors("phs-blue")) +
     geom_vline(xintercept = threshold_data %>% filter(region == region_filter) %>% pull(high_risk_temp), linetype = "solid", color = phs_colors("phs-rust")) +
     geom_vline(xintercept = heatwave_day, linetype = "dashed", color = phs_colors("phs-purple")) +
-    # Horizontal RR = 1 Reference Lines
+    ## Horizontal RR = 1 Reference Lines
     geom_hline(yintercept = 1, linetype = "solid", color = "black")+
-    # Formatting y-axis with secondary axis for counts
+    ## Formatting y-axis with secondary axis for counts
     scale_y_continuous(
       limits = c(0, 1.5),  # Match ylim from base R
       sec.axis = sec_axis(~ .* max_hist , name = "No. of Days", breaks = seq(0, max_count, by = 50))
     ) +
-    # Theme and labels
+    ## Theme and labels
     theme_minimal() +
     labs(
       subtitle = paste0(region_filter, " ", str_to_lower(event), ": ", as.character(window_yr), " (", window_size, "-year window)"),
@@ -360,7 +354,7 @@ if(window_size != "All years"){
          width = 6, height = 4)
   
   
-  # 2b. code for sliding window model:
+  # Attributable rates plots:
   
   if (event == "Deaths") {
     y_label <- "Attributable deaths\n(per 100,000)"
@@ -372,7 +366,7 @@ if(window_size != "All years"){
   }else{ar_data <- att_rates_region_list
   }
   
-  # Get maximum/minimum CI boundaries so all 3 plots have same axis limits
+  ## Get maximum/minimum CI boundaries so all 3 plots have same axis limits
   y_limit_upper <- ceiling(ar_data %>%
                              map_dbl(~ .x %>%
                                        select(contains("uci")) %>%
@@ -387,7 +381,7 @@ if(window_size != "All years"){
                                      min(na.rm = TRUE)) %>%
                            min(na.rm = TRUE))
   
-  # Initialise empty tibble to place yearly list data into 
+  ## Initialise empty tibble to place yearly list data into 
   attrib_sw_plot_data <- tibble(
     year = integer(),
     an_risk_increase = numeric(),
@@ -410,7 +404,7 @@ if(window_size != "All years"){
     ar_heatwave_day_lci = numeric()
   )
   
-  # Loop through years and add AR data to tibble
+  ## Loop through years and add AR data to tibble
   for(year in starting_year:2024){
     data <- ar_data[[as.character(year)]]
     
@@ -439,7 +433,7 @@ if(window_size != "All years"){
   }
   
   
-  # Plot attributable rate
+  ## Plot attributable rate
   # ~~~~~~~~~~~~~~~~~~~~~~
   plot_AR_risk_inc <- attrib_sw_plot_data %>%
     ggplot(aes(x = year, y = ar_risk_increase)) +
@@ -449,7 +443,7 @@ if(window_size != "All years"){
     scale_y_continuous(limits = c(y_limit_lower, y_limit_upper)) +
     labs(title = region,
          subtitle = "Temperatures above risk increase threshold",
-         x = "",
+         x = "\nYear",
          y = y_label) +
     theme_minimal() +
     theme(plot.title = element_text(size = 10),
@@ -469,7 +463,7 @@ if(window_size != "All years"){
     scale_y_continuous(limits = c(y_limit_lower, y_limit_upper)) +
     labs(
       subtitle = "Temperatures above high risk threshold",
-      x = "",
+      x = "\nYear",
       y = y_label) +
     theme_minimal() +
     theme(plot.title = element_text(size = 10),
@@ -503,7 +497,7 @@ if(window_size != "All years"){
   ggsave(combined_ar, filename = paste0(results_filepath, "/ar_plot.png"),
          width = 8, height = 6)
   
-  # Plot attributable number
+  ## Plot attributable number
   # ~~~~~~~~~~~~~~~~~~~~~~~~~
   
   plot_AN_risk_inc <- attrib_sw_plot_data %>%
@@ -514,7 +508,7 @@ if(window_size != "All years"){
     scale_y_continuous(limits = c(y_limit_lower, y_limit_upper)) +
     labs(title = region,
          subtitle = "Temperatures above risk increase threshold",
-         x = "",
+         x = "\nYear",
          y = y_label) +
     theme_minimal() +
     theme(plot.title = element_text(size = 10),
@@ -534,7 +528,7 @@ if(window_size != "All years"){
     scale_y_continuous(limits = c(y_limit_lower, y_limit_upper)) +
     labs(
       subtitle = "Temperatures above high risk threshold",
-      x = "",
+      x = "\nYear",
       y = y_label) +
     theme_minimal() +
     theme(plot.title = element_text(size = 10),
@@ -545,48 +539,48 @@ if(window_size != "All years"){
   ggsave(plot_AN_high_risk, filename = paste0(results_filepath, "/an_plot_high_risk.png"),
          width = 8, height = 4)
   
-  
+# Plots for normal, non-sliding window models
 }else{
   
-  # 1. plot histogram with RR curve over the top
+  # Plot histogram with RR curve over the top
   hist_data <- hist_list[[region]] %>% rename(temp_c = x)
   rr_data <- rr_list[[region]] %>% rename(temp_c = x)
   
-  # Maximum values for histogram plot
+  ## Maximum values for histogram plot
   max_hist <- max(hist_data$counts)
   max_count <- ceiling(max(hist_data$counts) / 50) * 50
   
   heatwave_day <-  25
   
   rr_plot <- ggplot() +
-    # Insert green panel for optimal weather range
+    ## Insert green panel for optimal weather range
     annotate("rect", fill = phs_colors("phs-green-50"), alpha = 0.5,
              xmin = temp_thresholds %>% filter(region == region_filter) %>% pull(opt_temp_range_low), xmax = temp_thresholds %>% filter(region == region_filter) %>% pull(opt_temp_range_high),
              ymin = 0, ymax = Inf) +
-    # Histogram Layer (Plotted First)
+    ## Histogram Layer (Plotted First)
     geom_col(data = hist_data, aes(x = temp_c, y = density *3.6),
              # fill = "grey80", color = "grey60"
              fill = phs_colors("phs-purple-80"), color = "black"
     ) +
-    # Relative Risk Curve
+    ## Relative Risk Curve
     geom_ribbon(data = rr_data, aes(x = temp_c, ymin = lower, ymax = upper),
                 fill = phs_colors("phs-rust-30")) +  # Confidence interval
     geom_line(data = rr_data, aes(x = temp_c, y = rr), color = "black", linewidth = 1) +
     geom_vline(xintercept = temp_thresholds %>% filter(region == region_filter) %>% pull(risk_increase_temp), linetype = "solid", color = phs_colors("phs-blue")) +
     geom_vline(xintercept = temp_thresholds %>% filter(region == region_filter) %>% pull(high_risk_temp), linetype = "solid", color = phs_colors("phs-rust")) +
     geom_vline(xintercept = heatwave_day, linetype = "dashed", color = phs_colors("phs-purple")) +
-    # Horizontal RR = 1 Reference Lines
+    ## Horizontal RR = 1 Reference Lines
     geom_hline(yintercept = 1, linetype = "solid", color = "black")+
-    # Formatting y-axis with secondary axis for counts
+    ## Formatting y-axis with secondary axis for counts
     scale_y_continuous(
       limits = c(0, 1.5),  # Match ylim from base R
       sec.axis = sec_axis(~ .* max_hist , name = "No. of Days", breaks = seq(0, max_count, by = 350))
     ) +
-    # Theme and labels
+    ## Theme and labels
     theme_minimal() +
     labs(
       subtitle = paste0(region, " ", str_to_lower(event), ": All years"),
-      x = "Maximum temperature",
+      x = "Maximum temperature (°C)",
       y = "Relative Risk"
     ) +
     theme(
@@ -603,7 +597,7 @@ if(window_size != "All years"){
   ggsave(plot = rr_plot, filename = paste0(results_filepath, "/rr_plot.png"),
          width = 6, height = 4)
   
-  # 2. plot att rates plots for risk increase, high risk and heatwave temps
+  # Plot att rates plots for risk increase, high risk and heatwave temps
   
   if (event == "Deaths") {
     y_label <- "Attributable deaths\n(per 100,000)"
@@ -620,7 +614,7 @@ if(window_size != "All years"){
     an_data <- att_nums_region
   }
   
-  # Get maximum rate so all 3 plots have same axis limits
+  ## Get maximum rate so all 3 plots have same axis limits
   y_limit_upper <- ar_data %>% 
     summarise(max = ceiling(max(c(ar_risk_increase_uci, ar_high_risk_uci, ar_heatwave_day_uci)))) %>% 
     pull(max)
@@ -628,7 +622,7 @@ if(window_size != "All years"){
     summarise(min = floor(min(c(ar_risk_increase_lci, ar_high_risk_lci, ar_heatwave_day_lci)))) %>% 
     pull(min)
   
-  # Get maximum and minimum number so all 3 plots have same axis limits
+  ## Get maximum and minimum number so all 3 plots have same axis limits
   y_limit_upper_an <- an_data %>% 
     summarise(max = ceiling(max(c(risk_increase_uci, high_risk_uci, heatwave_day_uci)))) %>% 
     pull(max)
@@ -636,7 +630,7 @@ if(window_size != "All years"){
     summarise(min = floor(min(c(risk_increase_lci, high_risk_lci, heatwave_day_lci)))) %>% 
     pull(min)
   
-  # Plot attributable rate
+  ## Plot attributable rate
   # ~~~~~~~~~~~~~~~~~~~~~~
   plot_AR_risk_inc <- ar_data %>%
     # filter(regnames == region) %>%
@@ -649,7 +643,7 @@ if(window_size != "All years"){
          subtitle = paste0("Temperatures above risk increase threshold (",
                            temp_thresholds %>% filter(region == region_filter) %>% pull(risk_increase_temp),
                            "°C)"),
-         x = "",
+         x = "\nYear",
          y = y_label) +
     theme_minimal() +
     theme(plot.title = element_text(size = 10),
@@ -672,7 +666,7 @@ if(window_size != "All years"){
       subtitle = paste0("Temperatures above high risk threshold (",
                         temp_thresholds %>% filter(region == region_filter) %>% pull(high_risk_temp),
                         "°C)"),
-      x = "",
+      x = "\nYear",
       y = y_label) +
     theme_minimal() +
     theme(plot.title = element_text(size = 10),
@@ -700,7 +694,7 @@ if(window_size != "All years"){
     scale_y_continuous(limits = c(y_limit_lower, y_limit_upper)) +
     labs(
       subtitle = paste0("Temperatures above risk thresholds"),
-      x = "",
+      x = "\nYear",
       y = y_label) +
     theme_minimal() +
     theme(plot.title = element_text(size = 10),
@@ -735,7 +729,7 @@ if(window_size != "All years"){
          width = 8, height = 6)
   
   
-  # Plot attributable number
+  ## Plot attributable number
   # ~~~~~~~~~~~~~~~~~~~~~~
   plot_AN_risk_inc <- an_data %>%
     # filter(regnames == region) %>%
@@ -748,7 +742,7 @@ if(window_size != "All years"){
          subtitle = paste0("Temperatures above risk increase threshold (",
                            temp_thresholds %>% filter(region == region_filter) %>% pull(risk_increase_temp),
                            "°C)"),
-         x = "",
+         x = "\nYear",
          y = y_label) +
     theme_minimal() +
     theme(plot.title = element_text(size = 10),
@@ -771,7 +765,7 @@ if(window_size != "All years"){
       subtitle = paste0("Temperatures above high risk threshold (",
                         temp_thresholds %>% filter(region == region_filter) %>% pull(high_risk_temp),
                         "°C)"),
-      x = "",
+      x = "\nYear",
       y = y_label) +
     theme_minimal() +
     theme(plot.title = element_text(size = 10),
@@ -809,27 +803,5 @@ if(window_size != "All years"){
   
 }
 
-
-### AIC plot - for checking
-# aics <- c(-28.93509, -19.4152, -23.98181, -23.60771, -26.87199, 
-#           -31.82786, -28.85952, -30.11249, -32.63875, -23.14806, -31.3283)
-# 
-# sw_aics <- tibble(
-#   year = 2014:2024,
-#   aic = aics
-# )
-# 
-# all_years_aic <- -50.78327
-# 
-# sw_aics %>% 
-#   ggplot() +
-#   geom_col(aes(x = year, y = aic, fill = aic), show.legend = FALSE) +
-#   geom_hline(yintercept = all_years_aic, colour = "red", linetype = "dashed") +
-#   annotate("text", x = 2019, y = -48, label = "All-years model", size = 3) +
-#   labs(
-#     x = "",
-#     y = "AIC",
-#     subtitle = "Model AICs: sliding window values vs all-years value"
-#   ) +
-#   theme_minimal()
-# 
+## Residuals boxplot
+boxplot(model_residuals)

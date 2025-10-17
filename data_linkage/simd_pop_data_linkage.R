@@ -1,6 +1,16 @@
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# simd_pop_data_linkage.R
+# Sept 2025
+# Al Morgan
+# 
 # This script combines population data from cl-out with deprivation data to
 # produce a dataframe with population by healthboard by SIMD to be used
-# to calculate relevant attributable rates in the DLNM model
+# to calculate relevant attributable rates in the DLNM model.
+
+# A CSV file is saved out to the 'lookups' folder of the repository, in which the
+# yearly populations by SIMD level and health board are summarised.
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
 
 library(tidyverse)
 library(phsmethods)
