@@ -21,9 +21,6 @@ library(lubridate) # For working with dates
 library(tidyr) # for tidying data
 library(testthat) # for data-checking tests within scripts
 
-#Note: to install geospatial packages see the script geospatial_install.R
-
-
 # 2 - arguments -----------------------------------------------------------
 
 # keep only the data you would like read in uncommented and check comma placement
