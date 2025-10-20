@@ -1,64 +1,65 @@
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# Attribution over 18 degrees
+# Attribution over 18.2 degrees
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 #Libraries
 library(tidyverse)
 library(readxl)
 library(fs)
+library(phsstyles)
 
 # Create a new folder with all of the attributable rate files in one place:
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 #Create function for extracting files for deaths and hospitalisations:
 
-find_files <- function(event){
-
-  # Set your main directory containing the folders
-  if(event == "deaths"){
-  main_dir <- "/conf/quality_indicators/Climate/data/dlnm_results/sliding_window_models/all_causes"
-  }else if(event == "hospital"){
-  main_dir <- "/conf/quality_indicators/Climate/data/dlnm_results/sliding_window_models/heat_related_causes"
-  }
-  
-  # Set the destination directory
-  dest_dir <- "/conf/quality_indicators/Climate/data/dlnm_results/sliding_window_models/collated_att_rate"
-  
-  # Set the target filename to look for
-  target_filename <- "attrib_rates_scotland.csv"
-  
-  folder_prefix <- paste0(event,"_") 
-  
-  if (!dir_exists(dest_dir)) {
-    dir_create(dest_dir)
-  }
-  
-  # Recursively list all folders
-  all_folders <- dir_ls(main_dir, type = "directory", recurse = TRUE)
-  
-  
-  # Filter folders by prefix
-  filtered_folders <- all_folders[grepl(paste0("^.*/", folder_prefix), all_folders)]
-  
-  
-  for (folder in filtered_folders) {
-    file_path <- path(folder, target_filename)
-    
-    if (file_exists(file_path)) {
-      # Create a unique name using the full folder path
-      folder_name_clean <- path_file(folder)
-      new_filename <- paste0(event,"_", folder_name_clean,"_",target_filename)
-      new_file_path <- path(dest_dir, new_filename)
-      
-      file_copy(file_path, new_file_path, overwrite = TRUE)
-      cat("Copied:", file_path, "→", new_file_path, "\n")
-    }
-  }
-}
-
-find_files("deaths")
-find_files("hospital")
-
+# find_files <- function(event){
+# 
+#   # Set your main directory containing the folders
+#   if(event == "deaths"){
+#   main_dir <- "/conf/quality_indicators/Climate/data/dlnm_results/sliding_window_models/all_causes"
+#   }else if(event == "hospital"){
+#   main_dir <- "/conf/quality_indicators/Climate/data/dlnm_results/sliding_window_models/heat_related_causes"
+#   }
+# 
+#   # Set the destination directory
+#   dest_dir <- "/conf/quality_indicators/Climate/data/dlnm_results/sliding_window_models/collated_att_rate"
+# 
+#   # Set the target filename to look for
+#   target_filename <- "attrib_rates_scotland.csv"
+# 
+#   folder_prefix <- paste0(event,"_")
+# 
+#   if (!dir_exists(dest_dir)) {
+#     dir_create(dest_dir)
+#   }
+# 
+#   # Recursively list all folders
+#   all_folders <- dir_ls(main_dir, type = "directory", recurse = TRUE)
+# 
+# 
+#   # Filter folders by prefix
+#   filtered_folders <- all_folders[grepl(paste0("^.*/", folder_prefix), all_folders)]
+# 
+# 
+#   for (folder in filtered_folders) {
+#     file_path <- path(folder, target_filename)
+# 
+#     if (file_exists(file_path)) {
+#       # Create a unique name using the full folder path
+#       folder_name_clean <- path_file(folder)
+#       new_filename <- paste0(event,"_", folder_name_clean,"_",target_filename)
+#       new_file_path <- path(dest_dir, new_filename)
+# 
+#       file_copy(file_path, new_file_path, overwrite = TRUE)
+#       cat("Copied:", file_path, "→", new_file_path, "\n")
+#     }
+#   }
+# }
+# 
+# find_files("deaths")
+# #find_files("hospital")
+# 
 
 # Extract data from a folder containing all attributable rate files:
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -79,7 +80,7 @@ shared_string <- "attrib_rates_scotland"
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # Extract year from the first matching file
 first_file <- files %>%
-  keep(~ basename(.x) %>% str_starts("hospital_")) %>%
+  keep(~ basename(.x) %>% str_starts("deaths_")) %>%
   first()
 
 year_value <- read_csv(first_file, show_col_types = FALSE) %>%
@@ -119,8 +120,8 @@ process_files <- function(file_list, prefix, shared_string) {
 # Process each subgroup
 df_d <- process_files(files, "deaths_", shared_string)%>%
   relocate(year)
-df_h <- process_files(files, "hospital_", shared_string)%>%
-  relocate(year)
+#df_h <- process_files(files, "hospital_", shared_string)%>%
+#  relocate(year)
 
 # Function to reshape a wide dataframe to long format
 reshape_to_long <- function(df, prefix) {
@@ -151,26 +152,33 @@ reshape_to_long <- function(df, prefix) {
 
 # Apply to both dataframes
 df_d_long <- reshape_to_long(df_d, "deaths_")
-df_h_long <- reshape_to_long(df_h, "hospital_")
+#df_h_long <- reshape_to_long(df_h, "hospital_")
 
-df_long <- bind_rows(df_d_long, df_h_long)
+#df_long <- bind_rows(df_d_long, df_h_long)
+df_long <- df_d_long
 
 av_rate <- df_long %>%
   mutate(breakdown = case_when(demographic == "under_65_yrs" ~ "Under 65",
                                demographic == "65_yrs_plus" ~ "65 plus",
                                demographic == "male" ~ "Males",
                                demographic == "female" ~ "Females",
-                               demographic == "simd1_2" ~ "Most deprived",
-                               demographic == "simd3" ~ "Central",
-                               demographic == "simd4_5" ~ "Least deprived"))
+                               demographic == "simd1" ~ "SIMD 1",
+                               demographic == "simd2" ~ "SIMD 2",
+                               demographic == "simd3" ~ "SIMD 3",
+                               demographic == "simd4" ~ "SIMD 4",
+                               demographic == "simd5" ~ "SIMD 5"),
+         category = case_when(demographic %in% c("under_65_yrs","65_yrs_plus")~"Age",
+                              demographic %in% c("male","female")~ "Sex",
+                              str_detect(demographic,"simd")~ "Deprivation index"))
 av_rate <- av_rate %>%
   mutate(breakdown = factor(breakdown,levels = c("Under 65","65 plus","Females", "Males",
-                                                 "Most deprived","Central","Least deprived")),
-          type = case_when(prefix == "hospital_" ~ "Hospitalisations",
+                                                 "SIMD 1", "SIMD 2", "SIMD 3", "SIMD 4", "SIMD 5")),
+         category = factor(category, levels = c("Age", "Sex", "Deprivation index")),
+          type = case_when(#prefix == "hospital_" ~ "Hospitalisations",
                            prefix == "deaths_" ~ "Deaths"))
 
 av_rate <- av_rate %>%
-  group_by(type,breakdown, component_type)%>%
+  group_by(type,breakdown, category, component_type)%>%
   summarise(mean_rate = mean(rate),
             mean_lci = mean(lower_ci),
             mean_uci = mean(upper_ci))%>%
@@ -178,7 +186,7 @@ av_rate <- av_rate %>%
 
 
 (plot_av_rate_scot_risk_inc <- ggplot(av_rate%>%filter(component_type == "scot_risk_inc"),
-                                      aes(x = breakdown, y = mean_rate, fill = type)) +
+                                      aes(x = breakdown, y = mean_rate, fill = category)) +
     geom_bar(stat = "identity", position = position_dodge(width = 0.9)) +
     geom_errorbar(
       aes(ymin = mean_lci, ymax = mean_uci),
@@ -186,13 +194,14 @@ av_rate <- av_rate %>%
       width = 0.2
     ) +
   facet_wrap(~ type, scales = "free_y") +
-  scale_fill_manual(values = c("Hospitalisations" = phs_colors("phs-blue"), "Deaths" = phs_colors("phs-magenta"))) +
+  scale_fill_manual(values = c("Sex" = phs_colors("phs-magenta"), "Age" = phs_colors("phs-blue"),
+                               "Deprivation index" = phs_colors("phs-purple"))) +
   theme_minimal()+
-   theme(axis.text.x = element_text(angle = 45, hjust = 1))+
+   theme(axis.text.x = element_text(angle = 45, hjust = 1),
+         axis.line = element_line(color = "black"))+
   labs(title = "Average attributable rates over 18°C by demographic group",
        x = "Demographic",
-       y = "Average attributable rate per 100,000",
-       fill = "Type")
+       y = "Average attributable rate per 100,000")
     )
 
 (plot_av_rate_heatwave_day <- ggplot(av_rate%>%filter(component_type == "heatwave_day"),
@@ -204,9 +213,11 @@ av_rate <- av_rate %>%
       width = 0.2
     ) +
     facet_wrap(~ type, scales = "free_y") +
-    scale_fill_manual(values = c("Hospitalisations" = phs_colors("phs-blue"), "Deaths" = phs_colors("phs-magenta"))) +
+    scale_fill_manual(values = c("Sex" = phs_colors("phs-magenta"), "Age" = phs_colors("phs-blue"),
+                                 "Deprivation index" = phs_colors("phs-purple"))) +
     theme_minimal()+
-    theme(axis.text.x = element_text(angle = 45, hjust = 1))+
+    theme(axis.text.x = element_text(angle = 45, hjust = 1),
+          axis.line = element_line(color = "black"))+
     labs(title = "Average attributable rates over 25°C by demographic group",
          x = "Demographic",
          y = "Average attributable rate per 100,000",

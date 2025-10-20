@@ -18,28 +18,9 @@ library(magrittr)
 library(gridExtra)
 library(shinyWidgets)
 library(shinycssloaders)
-
-
-# Load sliding window dlnm function
-# source("dlnm_sliding_model_function.R")
-
-## Region lists
-# NHS healthboards
-hb_names <- read_csv("/conf/quality_indicators/Climate/data/base_data/all_deaths_data_ephss20_near_ALLcovid/Oct2024-Dec2024all_deaths_data_nhsboard_vuln_split.csv") %>% 
-  distinct(regnames) %>% 
-  add_row(regnames = "Scotland") %>% 
-  pull()
-# Local authorities - commented out until data linkage re-run
-# la_names <- read_csv("/conf/quality_indicators/Climate/data/base_data/all_deaths_data_ephss20_near_ALLcovid/Oct2024-Dec2024all_deaths_data_councilarea_vuln_split.csv") %>% 
-#   distinct(regnames) %>% 
-#   add_row(regnames = "Scotland") %>% 
-#   pull()
-
-# Covid flag: This has been trialled for use instead of including a covid variable. (It works well)
-# Keep as FALSE if including a covid variable (about line 255) in "Extra independent variables"
-covid = FALSE
-
-# 
+library(car) # to check collinearity
+library(assertr)
+library(testthat)
 
 ## Choose time period ----
 # Different indicators will require different time periods (i.e. heat related
