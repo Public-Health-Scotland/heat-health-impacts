@@ -1,14 +1,21 @@
-#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# att_rate_barchart.R
 # Attribution over 18.2 degrees
-#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# Bella Tortora Brayda
+#
+# Script finds all the necessary data outputs for attributable rate over 18.2 degrees,
+# from separate folders for different demographic breakdown dlnm versions.
+# Then processes these data to produce the attributable rate barchart in the publication report.
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-#Libraries
+#Libraries ----
+#~~~~~~~~~~~~~~~
 library(tidyverse)
 library(readxl)
 library(fs)
 library(phsstyles)
 
-# Create a new folder with all of the attributable rate files in one place:
+# Create a new folder with all of the attributable rate files in one place: ----
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 #Create function for extracting files for deaths and hospitalisations:
@@ -117,7 +124,8 @@ process_files <- function(file_list, prefix, shared_string) {
 }
 
 
-# Process each subgroup
+# Process each subgroup ----
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 df_d <- process_files(files, "deaths_", shared_string)%>%
   relocate(year)
 #df_h <- process_files(files, "hospital_", shared_string)%>%
@@ -157,6 +165,9 @@ df_d_long <- reshape_to_long(df_d, "deaths_")
 #df_long <- bind_rows(df_d_long, df_h_long)
 df_long <- df_d_long
 
+# Create average rate dataframe for charts ----
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
 av_rate <- df_long %>%
   mutate(breakdown = case_when(demographic == "under_65_yrs" ~ "Under 65",
                                demographic == "65_yrs_plus" ~ "65 plus",
@@ -184,6 +195,8 @@ av_rate <- av_rate %>%
             mean_uci = mean(upper_ci))%>%
   ungroup()
 
+# Plot average rate charts ----
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 (plot_av_rate_scot_risk_inc <- ggplot(av_rate%>%filter(component_type == "scot_risk_inc"),
                                       aes(x = breakdown, y = mean_rate, fill = category)) +
