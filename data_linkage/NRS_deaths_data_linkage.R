@@ -35,7 +35,6 @@ Sys.setenv(MAKEFLAGS = paste("-j", as.character(available_cores), sep = ""))
 # Source relevant scripts
 # ~~~~~~~~~~~~~~~~~~~~~~~
 source(here::here("setup/setup_environment.R"))
-source(here::here("lookups/condition_codes.R"))
 
 ### Create list of quarter start dates for full time period
 ### This is for use when running the met_deaths_analysis 
@@ -44,17 +43,8 @@ source(here::here("lookups/condition_codes.R"))
 
 ## NEED TO UPDATE EACH TIME: ##
 
-# 1) Input dates for required quarters
-#    For a full year, need to give dates like 2019-01-01 to 2020-01-01 -------> NOT to 2019-12-31 
-
-# 2) Need to update the number in the q_start_dates[5] line. It should be the size 
-#    of the list length of q_start_dates (shown in the environment)
-
-# 3) Set `causes` variable to "all" or "heat-related"
-
-# 4) Set `geog` variable to "hb" (health board) or "ca" (council area)
-
-
+#  Input dates for required quarters
+# For a full year, need to give dates like 2019-01-01 to 2020-01-01 -------> NOT to 2019-12-31 
 
 q_start_dates <- as.list(seq.Date(from = as.Date("2005-01-01"),
                                   to = as.Date("2025-01-01"), 
@@ -86,82 +76,6 @@ check_na_rows <- function(data) {
   return(rows_with_na)
 }
 
-# ii) Function used in SECTION 8 to manipulate data at different geographies
-# to correct format
-
-
-final_deaths_dat <- function(
-    data, 
-    iz_pop,
-    pop_data,
-    geography_code, 
-    geography_name,
-    population){
-  
-  final_deaths <- data %>%
-    rename(#pop = population, 
-      tmean = max_temperature,
-      humidity = humidity,
-      region = `geography_code`,
-      regnames = `geography_name`) 
-  
-  final_deaths <- final_deaths %>%
-    mutate(death = case_when(!is.na(link_no) ~ 1,
-                             TRUE ~ 0),
-           year = year(date))
-  
-  if(population == "total_pop_iz"){
-    final_deaths1 <- final_deaths %>%
-      rename(pop = population)%>%
-      filter(!is.na(pop)) %>% # filtering missing iz pop estimates
-      group_by(year, date,region, regnames,tmean,pop, humidity) %>%
-      summarise(death = sum(death),
-                simd = mean(simd, na.rm = TRUE))%>%
-      ungroup()
-    
-  }else if (population %in% c("total_pop_board", "total_pop_la")){
-    # for board and local authority level apply population
-    # weighted temperature averages
-    
-    if(population == "total_pop_board"){
-      pop_dat <- pop_data %>%
-        rename(region = hb2019)
-    }else if (population == "total_pop_la"){
-      pop_dat <- pop_data %>%
-        rename(region = ca2019)
-    }
-    
-    final_deaths1 <-final_deaths %>%
-      filter(!is.na(total_pop_iz)) %>%# filtering missing iz pop estimates
-      rename(pop = population)%>%
-      group_by(year, date, region, regnames,pop) %>%
-      summarise(death = sum(death),
-                humidity = sum(humidity*total_pop_iz/sum(total_pop_iz)),
-                tmean = sum(tmean*total_pop_iz/sum(total_pop_iz)),
-                simd = mean(simd, na.rm = TRUE))%>%
-      ungroup() 
-  }
-  
-  final_deaths2 <- final_deaths1 %>%
-    mutate(month = month(date),
-           day = day(date),
-           yday = yday(date),
-           dow = wday(date))
-  
-  # Create time variable:
-  unique_dates <- final_deaths2 %>%
-    distinct(date) %>%
-    mutate(time = seq(1, n())) %>%
-    dplyr::select(date, time)
-  
-  # Join back to final_deaths data
-  final_deaths3 <- final_deaths2 %>%
-    left_join(unique_dates, by = c("date" = "date")) %>%
-    dplyr::select(date, year, month, day,	time,	yday,	dow,
-                  region,	regnames, simd,	tmean, humidity, death,	pop)
-  
-}
-
 # SMRA login information
 # ~~~~~~~~~~~~~~~~~~~~~~
 channel <- suppressWarnings(dbConnect(odbc(),  dsn="SMRA",
@@ -175,10 +89,6 @@ channel <- suppressWarnings(dbConnect(odbc(),  dsn="SMRA",
 # quarter_end = "2020-12-31"
 
 met_deaths_analysis <- function(quarter_start,quarter_end){
-  
-  # Checks for correctly-named variables
-  stopifnot(causes %in% c("heat-related", "all"))
-  stopifnot(geog %in% c("hb", "ca"))
   
   # Create list of quarter end dates
   start_date_short <- as.Date(quarter_start, format = "%Y-%m-%d")
@@ -198,10 +108,8 @@ met_deaths_analysis <- function(quarter_start,quarter_end){
   
   # 3. NRS deaths extract ----------------------------------------------------
   
-  # Query depends on if "heat-related" or "all" causes is selected
-  if(causes == "all"){
-    deaths <- as_tibble(dbGetQuery(channel, statement = paste0(
-      "SELECT LINK_NO, DATE_OF_DEATH, UNDERLYING_CAUSE_OF_DEATH,
+  deaths <- as_tibble(dbGetQuery(channel, statement = paste0(
+    "SELECT LINK_NO, DATE_OF_DEATH, UNDERLYING_CAUSE_OF_DEATH,
               CAUSE_OF_DEATH_CODE_0, CAUSE_OF_DEATH_CODE_1, CAUSE_OF_DEATH_CODE_2, CAUSE_OF_DEATH_CODE_3,
               CAUSE_OF_DEATH_CODE_4, CAUSE_OF_DEATH_CODE_5, CAUSE_OF_DEATH_CODE_6, CAUSE_OF_DEATH_CODE_7,
               CAUSE_OF_DEATH_CODE_8, CAUSE_OF_DEATH_CODE_9,
@@ -210,26 +118,9 @@ met_deaths_analysis <- function(quarter_start,quarter_end){
     FROM ANALYSIS.GRO_DEATHS_C
     WHERE DATE_OF_DEATH between '",start_date_long,"' and '",end_date_long,"'
     "))) %>%
-      clean_names() %>%
-      arrange(link_no)
-  }else if(causes == "heat-related"){
-    deaths <- as_tibble(dbGetQuery(channel, statement = paste0(
-      "SELECT LINK_NO, DATE_OF_DEATH, UNDERLYING_CAUSE_OF_DEATH,
-              CAUSE_OF_DEATH_CODE_0, CAUSE_OF_DEATH_CODE_1, CAUSE_OF_DEATH_CODE_2, CAUSE_OF_DEATH_CODE_3,
-              CAUSE_OF_DEATH_CODE_4, CAUSE_OF_DEATH_CODE_5, CAUSE_OF_DEATH_CODE_6, CAUSE_OF_DEATH_CODE_7,
-              CAUSE_OF_DEATH_CODE_8, CAUSE_OF_DEATH_CODE_9,
-              DATE_OF_BIRTH, SEX, AGE,
-              AGE_LESS_THAN_2_YRS, PLACE_OF_DEATH_POSTCODE, POSTCODE -- need both postcodes as PoD only available from 2009
-    FROM ANALYSIS.GRO_DEATHS_C
-    WHERE DATE_OF_DEATH between '",start_date_long,"' and '",end_date_long,"'
-    AND regexp_like(UNDERLYING_CAUSE_OF_DEATH || CAUSE_OF_DEATH_CODE_0 || CAUSE_OF_DEATH_CODE_1
-          || CAUSE_OF_DEATH_CODE_3 || CAUSE_OF_DEATH_CODE_4 || CAUSE_OF_DEATH_CODE_5 ||
-           CAUSE_OF_DEATH_CODE_6 || CAUSE_OF_DEATH_CODE_7 || CAUSE_OF_DEATH_CODE_8 ||
-           CAUSE_OF_DEATH_CODE_9, '", all ,"')
-    "))) %>%
-      clean_names() %>%
-      arrange(link_no)
-  }
+    clean_names() %>%
+    arrange(link_no)
+  
   
   # Add covid column for those who died due to covid ------------------------------
   
@@ -245,11 +136,11 @@ met_deaths_analysis <- function(quarter_start,quarter_end){
                                   cause_of_death_code_7 == "U071" | cause_of_death_code_7 == "U072"|
                                   cause_of_death_code_8 == "U071" | cause_of_death_code_8 == "U072",
                                 1, 0))
-    # more efficient method, but possibly harder to understand
-    # mutate(covid_death = if_else(
-    #   if_any(c("underlying_cause_of_death", paste0("cause_of_death_code_", 0:8)), ~ .x %in% c("U071", "U072")),
-    #   1, 0
-    # ))
+  # more efficient method, but possibly harder to understand
+  # mutate(covid_death = if_else(
+  #   if_any(c("underlying_cause_of_death", paste0("cause_of_death_code_", 0:8)), ~ .x %in% c("U071", "U072")),
+  #   1, 0
+  # ))
   
   
   # 4. link deaths to geography ----------------------------------------------------
@@ -546,15 +437,6 @@ met_deaths_analysis <- function(quarter_start,quarter_end){
               death_females = sum(sex == 2, na.rm = TRUE)
     ) %>% 
     ungroup() #%>% 
-  # this mutate just helps check that the total number of deaths match for each region 
-  # mutate(death_sum_check = (death_under_65yrs + death_65yrs_over) == death) %>%
-  # filter(death_sum_check == FALSE)
-  # mutate(sex_sum_check = (death_males + death_females) == death) %>%
-  # filter(sex_sum_check == FALSE)
-  # mutate(simd_sum_check = (death_simd1 + death_simd2 + death_simd3 +
-  #                            death_simd4 + death_simd5) == death) %>%
-  # filter(simd_sum_check == FALSE)
-  
   
   
   pop_dat <- pop_data %>%
@@ -586,31 +468,21 @@ met_deaths_analysis <- function(quarter_start,quarter_end){
   # 9. Save out data ---------------------------------------------
   
   if(geography_name == "hb2019name"){
-    if(causes == "all"){
-      write.csv(final_deaths, paste0("/conf/quality_indicators/Climate/data/base_data/all_deaths_data_ephss20_near_ALLcovid/",
-                                     start_mmmYY,"-",end_mmmYY,"all_deaths_data_nhsboard_vuln_split.csv"))
-    }else   if(causes == "heat-related"){
-      write.csv(final_deaths, paste0("/conf/quality_indicators/Climate/data/base_data/heat_deaths_data_ephss20_near_ALLcovid/",
-                                     start_mmmYY,"-",end_mmmYY,"heat_deaths_data_nhsboard_vuln_split.csv"))
-    }
+    write.csv(final_deaths, paste0("/conf/quality_indicators/Climate/data/base_data/all_deaths_data_ephss20_near_ALLcovid/",
+                                   start_mmmYY,"-",end_mmmYY,"all_deaths_data_nhsboard_vuln_split.csv"))
   }
-  if(geography_name == "ca2019name"){
-    if(causes == "all"){
-      write.csv(final_deaths, paste0("/conf/quality_indicators/Climate/data/base_data/all_deaths_data_ephss20_near_ALLcovid/",
-                                     start_mmmYY,"-",end_mmmYY,"all_deaths_data_councilarea_vuln_split.csv"))
-    }else if(causes == "heat-related"){
-      write.csv(final_deaths, paste0("/conf/quality_indicators/Climate/data/base_data/heat_deaths_data_ephss20_near_ALLcovid/",
-                                     start_mmmYY,"-",end_mmmYY,"heat_deaths_data_councilarea_vuln_split.csv"))
-    }
+  else if(geography_name == "ca2019name"){
+    write.csv(final_deaths, paste0("/conf/quality_indicators/Climate/data/base_data/all_deaths_data_ephss20_near_ALLcovid/",
+                                   start_mmmYY,"-",end_mmmYY,"all_deaths_data_councilarea_vuln_split.csv"))
   }
 }
 
 ## Run quarterly data extraction:
 # given date range:
 
-# debug(met_deaths_analysis)
-# met_deaths_analysis(quarter_start = "2020-07-01",
-#                     quarter_end = "2020-09-30")
+debug(met_deaths_analysis)
+met_deaths_analysis(quarter_start = "2020-07-01",
+                    quarter_end = "2020-09-30")
 
 # full date range
 # 
