@@ -13,9 +13,6 @@ Note that there are references to hospitalisations in some of the scripts contai
 ## Layout
 Each folder is explained below:
 
-- **condition_analysis**:
-Contains scripts for data linkage and analysis of heat-related hospitalisation causes in Scotland.
-
 - **data_linkage**:
 Contains scripts for linking climate data (e.g. regional temperatures) from the Environmental Public Health Surveillance System (EPHSS), population and deprivation data with Scottish deaths data.
 
