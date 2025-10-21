@@ -2,19 +2,10 @@
 # NRS_data_linkage_hum_covid.R
 # Jan 2025
 # Bella Tortora Brayda (updated by Sarah Reed March 2025)
-# 
-# RUN TIME (1 year data) = 
+#
 # Script to link NRS data with metoffice data 
 # #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# Script modified from NRS_data_linkage.R
-# - initial models run but seems to be issues with the model for some geographies, 
-# potentially due to sample sizes smaller than those in England. This script is
-# to extract ALL deaths - not just those with heat related conditions, to see if 
-# a larger sample size results in more reasonable results. 
-# - Will need to evaluate a method for handling small sample sizes regardless,
-# as we do want to focus on heat related mortality, however if this version runs, 
-# it could serve as a stop gap for SG. 
-#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#
 # SCRIPT CONTENTS:
 # This script first calls the setup_environment and condition codes
 # before creating 2 functions used later in the script 
