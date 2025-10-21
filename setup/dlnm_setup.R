@@ -1,3 +1,10 @@
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# dlnm_setup.R
+# Script to load libraries and set some parameters
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+# 1 - Libraries -----------------------------------------------------------
+
 library(snakecase)
 library(tidyverse)
 library(janitor) # for cleaning data
