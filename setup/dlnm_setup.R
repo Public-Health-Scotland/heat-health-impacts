@@ -1,9 +1,9 @@
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # dlnm_setup.R
-# Script to load libraries and set some parameters
+# Script to load libraries
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-# 1 - Libraries -----------------------------------------------------------
+# Libraries -----------------------------------------------------------
 
 library(snakecase)
 library(tidyverse)
@@ -28,32 +28,3 @@ library(shinycssloaders)
 library(car) # to check collinearity
 library(assertr)
 library(testthat)
-
-## Choose time period ----
-# Different indicators will require different time periods (i.e. heat related
-# indicators may look specifically at the summer months). 
-# If looking at summer months only, set summer to TRUE. Otherwise, set to FALSE
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-summer = TRUE
-
-# If summer is set to true, month choice is filtered to the requested months
-# UKHSA and PHW have used June (6) to September (9) as the summer months,
-# so we have mirrored that choice here
-
-if(summer == TRUE){
-  month_choice = c(6:9)
-} else{
-  month_choice = c(1:12)
-}
-
-# VARPER chooses which percentile to have internal knot positions at 
-# - Fewer knot positions and no need for a low knot for summer months
-# varper is assigned when using a b-spline for the exposure function. Otherwise
-# vardegree is used for the ns exposure function
-
-if(summer == TRUE){
-  varper <- c(50,90)
-}else{
-  varper <- c(10,75,90)
-}
