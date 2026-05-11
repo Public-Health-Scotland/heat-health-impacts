@@ -90,6 +90,10 @@ channel <- suppressWarnings(dbConnect(odbc(),  dsn="SMRA",
 
 met_deaths_analysis <- function(quarter_start,quarter_end){
   
+  # Checks for correctly-named variables
+  stopifnot(causes %in% c("heat-related", "all"))
+  stopifnot(geog %in% c("hb", "ca"))
+  
   # Create list of quarter end dates
   start_date_short <- as.Date(quarter_start, format = "%Y-%m-%d")
   end_date_short <- as.Date(quarter_end, format = "%Y-%m-%d")
@@ -97,6 +101,8 @@ met_deaths_analysis <- function(quarter_start,quarter_end){
   end_date_long <- format(end_date_short, "%d %B %Y")
   start_mmmYY <- paste0(format(start_date_short, "%b"),year(start_date_short))
   end_mmmYY <- paste0(format(end_date_short, "%b"),year(end_date_short))
+  
+  print(paste0("Extracting data from ", start_mmmYY, " to ", end_mmmYY, "..."))
   
   # Lookups and data used in script, loaded in setup_environment:
   # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -108,8 +114,10 @@ met_deaths_analysis <- function(quarter_start,quarter_end){
   
   # 3. NRS deaths extract ----------------------------------------------------
   
-  deaths <- as_tibble(dbGetQuery(channel, statement = paste0(
-    "SELECT LINK_NO, DATE_OF_DEATH, UNDERLYING_CAUSE_OF_DEATH,
+  # Query depends on if "heat-related" or "all" causes is selected
+  if(causes == "all"){
+    deaths <- as_tibble(dbGetQuery(channel, statement = paste0(
+      "SELECT LINK_NO, DATE_OF_DEATH, UNDERLYING_CAUSE_OF_DEATH,
               CAUSE_OF_DEATH_CODE_0, CAUSE_OF_DEATH_CODE_1, CAUSE_OF_DEATH_CODE_2, CAUSE_OF_DEATH_CODE_3,
               CAUSE_OF_DEATH_CODE_4, CAUSE_OF_DEATH_CODE_5, CAUSE_OF_DEATH_CODE_6, CAUSE_OF_DEATH_CODE_7,
               CAUSE_OF_DEATH_CODE_8, CAUSE_OF_DEATH_CODE_9,
@@ -118,9 +126,26 @@ met_deaths_analysis <- function(quarter_start,quarter_end){
     FROM ANALYSIS.GRO_DEATHS_C
     WHERE DATE_OF_DEATH between '",start_date_long,"' and '",end_date_long,"'
     "))) %>%
-    clean_names() %>%
-    arrange(link_no)
-  
+      clean_names() %>%
+      arrange(link_no)
+  }else if(causes == "heat-related"){
+    deaths <- as_tibble(dbGetQuery(channel, statement = paste0(
+      "SELECT LINK_NO, DATE_OF_DEATH, UNDERLYING_CAUSE_OF_DEATH,
+              CAUSE_OF_DEATH_CODE_0, CAUSE_OF_DEATH_CODE_1, CAUSE_OF_DEATH_CODE_2, CAUSE_OF_DEATH_CODE_3,
+              CAUSE_OF_DEATH_CODE_4, CAUSE_OF_DEATH_CODE_5, CAUSE_OF_DEATH_CODE_6, CAUSE_OF_DEATH_CODE_7,
+              CAUSE_OF_DEATH_CODE_8, CAUSE_OF_DEATH_CODE_9,
+              DATE_OF_BIRTH, SEX, AGE,
+              AGE_LESS_THAN_2_YRS, PLACE_OF_DEATH_POSTCODE, POSTCODE -- need both postcodes as PoD only available from 2009
+    FROM ANALYSIS.GRO_DEATHS_C
+    WHERE DATE_OF_DEATH between '",start_date_long,"' and '",end_date_long,"'
+    AND regexp_like(UNDERLYING_CAUSE_OF_DEATH || CAUSE_OF_DEATH_CODE_0 || CAUSE_OF_DEATH_CODE_1
+          || CAUSE_OF_DEATH_CODE_3 || CAUSE_OF_DEATH_CODE_4 || CAUSE_OF_DEATH_CODE_5 ||
+           CAUSE_OF_DEATH_CODE_6 || CAUSE_OF_DEATH_CODE_7 || CAUSE_OF_DEATH_CODE_8 ||
+           CAUSE_OF_DEATH_CODE_9, '", all ,"')
+    "))) %>%
+      clean_names() %>%
+      arrange(link_no)
+  }
   
   # Add covid column for those who died due to covid ------------------------------
   
@@ -136,11 +161,11 @@ met_deaths_analysis <- function(quarter_start,quarter_end){
                                   cause_of_death_code_7 == "U071" | cause_of_death_code_7 == "U072"|
                                   cause_of_death_code_8 == "U071" | cause_of_death_code_8 == "U072",
                                 1, 0))
-  # more efficient method, but possibly harder to understand
-  # mutate(covid_death = if_else(
-  #   if_any(c("underlying_cause_of_death", paste0("cause_of_death_code_", 0:8)), ~ .x %in% c("U071", "U072")),
-  #   1, 0
-  # ))
+    # more efficient method, but possibly harder to understand
+    # mutate(covid_death = if_else(
+    #   if_any(c("underlying_cause_of_death", paste0("cause_of_death_code_", 0:8)), ~ .x %in% c("U071", "U072")),
+    #   1, 0
+    # ))
   
   
   # 4. link deaths to geography ----------------------------------------------------
@@ -154,40 +179,98 @@ met_deaths_analysis <- function(quarter_start,quarter_end){
   #   (which is based on the person's place of residence)
   if(start_date_short < "2009-01-01"){
     deaths_pc <- deaths %>% 
-      mutate(place_of_death_postcode = format_postcode(postcode, format="pc8"))
-  }else{
+      mutate(place_of_death_postcode = format_postcode(postcode, format="pc8")) 
+  }else{ # From 2009 onwards, use place_of_death_postcode when available, postcode if not
     deaths_pc <- deaths %>% 
-      mutate(place_of_death_postcode = format_postcode(place_of_death_postcode, format="pc8"))
+      mutate(place_of_death_postcode = case_when(
+        !is.na(place_of_death_postcode) ~ format_postcode(place_of_death_postcode, format="pc8"),
+        !is.na(postcode) ~ format_postcode(postcode, format="pc8"),
+        TRUE ~ NA
+      ))
   }
+  
+  # Count number of rows without a postcode, run a check, and then exclude these
+  postcode_na_n <- deaths_pc %>% 
+    filter(is.na(place_of_death_postcode)) %>% 
+    nrow()
+  
+  if(postcode_na_n/nrow(deaths_pc) > 0.01){
+    warning("More than 1% of rows of deaths data have been excluded due to
+            lack of postcode - consider checking data quality.")
+    Sys.sleep(5)
+  }
+  
+  deaths_pc <- deaths_pc %>% 
+    filter(!is.na(place_of_death_postcode))
   
   # select just the postcode and IZ info (postcode_dir loaded in setup_environment.R)
   # postcode_dir no longer contains intzone2011name (only 2022 name), join from pop_iz
   pc <- postcode_dir %>% 
     dplyr::select(pc8, intzone2011, hb2019, hb2019name, ca2019, ca2019name) %>% 
     left_join(pop_iz %>% select(intzone2011, intzone2011name), by = "intzone2011") %>% 
-    relocate(intzone2011name, .after = intzone2011)
+    relocate(intzone2011name, .after = intzone2011) %>% 
+    distinct() # remove duplicates
   
   
   print("Joining pc data to deaths")
+  
+  ## Check for any incorrect postcodes and remove if present
+  deaths_pc_check1 <- deaths_pc %>% 
+    select(place_of_death_postcode) %>% 
+    anti_join(pc, by = c("place_of_death_postcode" = "pc8")) %>% 
+    distinct(place_of_death_postcode) %>% 
+    pull()
+  
+  # If any exist, confirm this using postcode directory and then filter them out of deaths_pc
+  if(length(deaths_pc_check1) > 0){
+    test_that("Confirm that incorrect postcodes don't exist in the postcode directory",
+              expect_false(any(pc$pc8 %in% deaths_pc_check1))
+    )
+    
+    deaths_pc <- deaths_pc %>% 
+      filter(!(place_of_death_postcode %in% deaths_pc_check1))
+  }
+  
+  ## Check that postcode is working correctly for the data join
+  deaths_pc_check2 <- deaths_pc %>%
+    sample_n(100) %>% 
+    select(place_of_death_postcode) %>% 
+    left_join(pc %>% filter(!(stringr::str_detect(intzone2011name, "^IZ"))), # filtering out IZs with IZXX instead of name (these are duplicates and are properly dealt with later)
+              by = c("place_of_death_postcode" = "pc8")) 
+ 
+  test_that("100 randomly-selected rows in deaths data join to postcode data correctly",
+      expect_equal(nrow(deaths_pc_check2), 100)
+  )
   
   # Add intermediate zone column to SMR data by joining with selected postcode data
   deaths_pc <- left_join(deaths_pc, pc, by = c("place_of_death_postcode" = "pc8"))
   
   deaths_pc %<>%
-    tidylog::distinct(link_no, .keep_all = TRUE)%>%
+    tidylog::distinct(link_no, .keep_all = TRUE) %>%
     dplyr::mutate(year = as.integer(year(date_of_death))) 
   
   sum(is.na(deaths_pc$intzone2011)) 
   
   unmatched <- anti_join(deaths_pc, pc, by=c("place_of_death_postcode" = "pc8")) 
   
-  #### Missing postcode of death in these cases. EXCLUDED
+  test_that("Number of death postcodes that can't be located in postcode directory should be 0",
+            expect_equal(nrow(unmatched), 0)
+  )
+
+  if(nrow(unmatched)/nrow(deaths_pc) > 0.01){
+    perc_missing <- round((nrow(unmatched)/nrow(deaths_pc))*100, 3)
+    warning(
+      paste(
+        paste0("When extracting data from ", start_mmmYY, " to ", end_mmmYY),
+        paste0(perc_missing, "% of rows of deaths data were excluded due to lack of postcode - consider checking data quality.")
+      ))
+    Sys.sleep(5)
+  }
   
   # 5. SIMD lookups and combined file ---------------------------------------
-  
   simd_2020 <- readRDS(paste0("/conf/linkage/output/",
                               "lookups/Unicode/Deprivation",
-                              "/postcode_2025_1_simd2020v2.rds")) %>%
+                              "/postcode_2026_1_simd2020v2.rds")) %>%
     dplyr::select(pc7, simd2020v2_sc_quintile) %>%
     rename(postcode = pc7,
            simd = simd2020v2_sc_quintile) %>%
@@ -262,25 +345,22 @@ met_deaths_analysis <- function(quarter_start,quarter_end){
   #     for each of the three population files (IZ, board and LA)
   # 2) create a 'year' column in smr_nrs to link accurate pop estimates
   # 
-  # NB: when we do age breakdowns we will need to select appropriate pops
+  # Note: pop_iz, pop_board and pop_la are read in via setup_environment.R,
+  # sourced at the start of this script
+
+  print("Adjusting pop estimates for 2025")
   
-  print("Adjusting pop estimates for 2023/2024")
-  
-  if(unique(deaths_pc$year) %in% c(2023,2024)){
+  # Due to missing population estimates for 2025, using 2024 estimate
+  if(unique(deaths_pc$year) == 2025){
     
-    # Due to missing IZ population estimates for 2023 and 2024, using 2022 estimates
-    # for these years
     pop_iz <- pop_iz %>%
-      filter(year == 2022) 
+      filter(year == 2024) 
     
-    if(unique(deaths_pc$year) == 2024){
-      
-      pop_board <- pop_board %>%
-        filter(year == 2023)
-      
-      pop_la <- pop_la %>%
-        filter(year == 2023)
-    }
+    pop_board <- pop_board %>%
+      filter(year == 2024)
+    
+    pop_la <- pop_la %>%
+      filter(year == 2024)
   }
   
   pop_iz_short <- pop_iz |> 
@@ -301,14 +381,18 @@ met_deaths_analysis <- function(quarter_start,quarter_end){
     summarise(total_pop_la = sum(pop)) |> 
     ungroup()
   
-  if(unique(deaths_pc$year) == 2024){
-    pop_iz_short %<>% mutate(year = 2024)
-    pop_board_short %<>% mutate(year = 2024)
-    pop_la_short %<>% mutate(year = 2024)
-  }
+  test_that("Population totals are equal for 2024",
+            expect_equal(
+              pop_iz_short %>% filter(year == 2024) %>% summarise(sum(total_pop_iz)) %>% pull(),
+              pop_board_short %>% filter(year == 2024) %>%  summarise(sum(total_pop_board)) %>% pull(),
+              pop_la_short %>% filter(year == 2024) %>%  summarise(sum(total_pop_la)) %>% pull()            )
+  )
   
-  if(unique(deaths_pc$year) == 2023){
-    pop_iz_short %<>% mutate(year = 2023)
+  # Adjust summarised population dataframes for missing 2025 data
+  if(unique(deaths_pc$year) == 2025){
+    pop_iz_short %<>% mutate(year = 2025)
+    pop_board_short %<>% mutate(year = 2025)
+    pop_la_short %<>% mutate(year = 2025)
   }
   
   # 7. Met_geo data match with nrs ----------------------------------------------------------
@@ -351,18 +435,16 @@ met_deaths_analysis <- function(quarter_start,quarter_end){
   # admission. Exclude for now. Also only select columns needed for final
   # data.
   
-  ### BEFORE CONTINUING, CHECK THAT NO populations HAVE MISSING DATA
+  ### A check for populations with missing data
   
   #check <- check_na_rows(met_nrs)
   
   check <- filter(met_nrs, is.na(total_pop_iz))
   print(paste(quarter_start,"to",quarter_end))
   print(paste("There are", nrow(check), "dates with missing data."))
-  #print("There are population estimates missing for:")
-  #print(unique(check$intzone2011name))
-  # 
+  
   # # Exclude NA's
-  # 
+  
   if(nrow(check) != 0){
     
     met_nrs <- met_nrs |>
@@ -410,7 +492,6 @@ met_deaths_analysis <- function(quarter_start,quarter_end){
   
   # rename columns inline with DLNM (also helps standardise when running function 
   # with different geographies)
-  
   final_deaths <- data %>%
     filter(!is.na(total_pop_board), # filtering missing hb pop estimates
            !(stringr::str_detect(intzone2011name.x, "^IZ"))) %>% # filtering out IZ zones with IZXX instead of name (these are duplicates)
@@ -419,12 +500,13 @@ met_deaths_analysis <- function(quarter_start,quarter_end){
            humidity = humidity,
            covid_death = covid_death,
            region = all_of(geography_code),
-           regnames = all_of(geography_name)) %>%
+           regnames = all_of(geography_name)
+    ) %>%
     group_by(year, date, region, regnames, pop) %>%
     summarise(tmean = sum(tmean*pop/sum(pop)),
               humidity = sum(humidity*pop/sum(pop)),
               simd_mean = mean(simd, na.rm = TRUE),
-              death = n_distinct(link_no, na.rm = TRUE),
+              death = sum(!is.na(link_no)), # all link nos
               covid_death = sum(covid_death, na.rm = TRUE), 
               death_under_65yrs = sum(age < 65, na.rm = TRUE),
               death_65yrs_over = sum(age >= 65, na.rm = TRUE),
@@ -433,10 +515,22 @@ met_deaths_analysis <- function(quarter_start,quarter_end){
               death_simd3 = sum(simd == 3, na.rm = TRUE),
               death_simd4 = sum(simd == 4, na.rm = TRUE),
               death_simd5 = sum(simd == 5, na.rm = TRUE),
+              death_simdna = sum(is.na(simd) & !is.na(link_no)), # including for the test below
               death_males = sum(sex == 1, na.rm = TRUE),
-              death_females = sum(sex == 2, na.rm = TRUE)
+              death_females = sum(sex == 2, na.rm = TRUE),
+              death_sex_other = sum(sex %in% c(0, 9), na.rm = TRUE), # unknown/intersex
     ) %>% 
-    ungroup() #%>% 
+    ungroup() 
+  
+  test_that("Deaths by all population subgroups equal total deaths", {
+    expect_equal(final_deaths$death_under_65yrs + final_deaths$death_65yrs_over, final_deaths$death)
+    expect_equal(final_deaths$death_males + final_deaths$death_females +
+                   final_deaths$death_sex_other, final_deaths$death)
+    expect_equal(final_deaths$death_simd1 + final_deaths$death_simd2 +
+                   final_deaths$death_simd3 + final_deaths$death_simd4 +
+                   final_deaths$death_simd5 + final_deaths$death_simdna, final_deaths$death)
+  })
+  
   
   
   pop_dat <- pop_data %>%
@@ -449,7 +543,6 @@ met_deaths_analysis <- function(quarter_start,quarter_end){
            day = day(date),
            yday = yday(date),
            dow = wday(date)) 
-  
   
   # Create time variable:
   unique_dates <- final_deaths %>%
@@ -468,34 +561,32 @@ met_deaths_analysis <- function(quarter_start,quarter_end){
   # 9. Save out data ---------------------------------------------
   
   if(geography_name == "hb2019name"){
-    write.csv(final_deaths, paste0("/conf/quality_indicators/Climate/data/base_data/all_deaths_data_ephss20_near_ALLcovid/",
-                                   start_mmmYY,"-",end_mmmYY,"all_deaths_data_nhsboard_vuln_split.csv"))
+    if(causes == "all"){
+      write.csv(final_deaths, paste0("/conf/quality_indicators/Climate/data/base_data/all_deaths_data_ephss20_near_ALLcovid/",
+                                     start_mmmYY,"-",end_mmmYY,"all_deaths_data_nhsboard_vuln_split.csv"))
+    }else   if(causes == "heat-related"){
+      write.csv(final_deaths, paste0("/conf/quality_indicators/Climate/data/base_data/heat_deaths_data_ephss20_near_ALLcovid/",
+                                     start_mmmYY,"-",end_mmmYY,"heat_deaths_data_nhsboard_vuln_split.csv"))
+    }
   }
-  else if(geography_name == "ca2019name"){
-    write.csv(final_deaths, paste0("/conf/quality_indicators/Climate/data/base_data/all_deaths_data_ephss20_near_ALLcovid/",
-                                   start_mmmYY,"-",end_mmmYY,"all_deaths_data_councilarea_vuln_split.csv"))
+  if(geography_name == "ca2019name"){
+    if(causes == "all"){
+      write.csv(final_deaths, paste0("/conf/quality_indicators/Climate/data/base_data/all_deaths_data_ephss20_near_ALLcovid/",
+                                     start_mmmYY,"-",end_mmmYY,"all_deaths_data_councilarea_vuln_split.csv"))
+    }else if(causes == "heat-related"){
+      write.csv(final_deaths, paste0("/conf/quality_indicators/Climate/data/base_data/heat_deaths_data_ephss20_near_ALLcovid/",
+                                     start_mmmYY,"-",end_mmmYY,"heat_deaths_data_councilarea_vuln_split.csv"))
+    }
   }
 }
 
-## Run quarterly data extraction:
-# given date range:
-
-debug(met_deaths_analysis)
-met_deaths_analysis(quarter_start = "2020-07-01",
-                    quarter_end = "2020-09-30")
 
 # full date range
-# 
 start <- Sys.time()
 map2(q_start_dates,q_end_dates, ~
        met_deaths_analysis(.x,.y))
 end <- Sys.time()
 
-end-start
+end-start # gives time duration
 
-# End session (useful for running as a night session)
-# Get the Process ID of the R session
-ppid <- system(paste("ps -o ppid= -p", Sys.getpid()), intern = TRUE)
-# Gracefully terminate the R session
-system(paste("kill -15", ppid))
 
