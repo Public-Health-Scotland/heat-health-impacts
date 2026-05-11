@@ -6,11 +6,6 @@ dlnm <- function(event, cause, geog, vuln_breakdown, vuln_group,
   ############# DLNM SETUP ############
   print(paste("DLNM function has taken in", event, cause, geog, vuln_breakdown, vuln_group,
               results_filepath))
-  ## Set up indicator specific variables ----
-  # Where this script has so far been used for heat related mortality and morbidity
-  # it is split into two conditional sections for if event == death, and for if
-  # event == hospital admissions. The arguments that may differ for specific indicators,
-  # from the standard base arguments are listed here.
   # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
   
   stopifnot(tolower(geog) %in% c("nhs health board", "local authority"))
@@ -19,12 +14,40 @@ dlnm <- function(event, cause, geog, vuln_breakdown, vuln_group,
   if(tolower(geog) == "nhs health board"){folder_geog <- "nhsboard"}
   else if(tolower(geog) == "local authority"){folder_geog <- "councilarea"}
   
-  stopifnot(tolower(event) %in% c("deaths", "hospital admissions"))
+  stopifnot(tolower(event) %in% c("deaths"))
+  
+  ## Set time period ----
+  # Different indicators will require different time periods (i.e. heat related
+  # indicators may look specifically at the summer months). 
+  # If looking at summer months only, set summer to TRUE. Otherwise, set to FALSE
+  # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  
+  summer = TRUE
+  
+  # If summer is set to true, month choice is filtered to the requested months
+  # UKHSA and PHW have used June (6) to September (9) as the summer months,
+  # so we have mirrored that choice here
+  
+  if(summer == TRUE){
+    month_choice = c(6:9)
+  } else{
+    month_choice = c(1:12)
+  }
+  
+  # VARPER chooses which percentile to have internal knot positions at 
+  # - Fewer knot positions and no need for a low knot for summer months
+  # varper is assigned when using a b-spline for the exposure function. Otherwise
+  # vardegree is used for the ns exposure function
+  
+  if(summer == TRUE){
+    varper <- c(50,90)
+  }else{
+    varper <- c(10,75,90)
+  }
   
   # Heat related mortality: arguments
   # ~~~~~~~~~~~~~~~~~~~~~~~
-  if (tolower(event) == "deaths"){
-    
+ 
     # DATA PATHS:
     # ~~~~
     
@@ -57,7 +80,8 @@ dlnm <- function(event, cause, geog, vuln_breakdown, vuln_group,
       else if(vuln_group == "5"){dependent_col <-  "death_simd5"}
       else if(vuln_group == "1 & 2"){dependent_col <-  "death_simd1_2"}
       else if(vuln_group == "4 & 5"){dependent_col <-  "death_simd4_5"}
-      
+    }else if(tolower(vuln_breakdown) == "condition"){
+      stop("Deaths data not yet broken down by condition, please choose another breakdown")
     }
     
     # VARFUN: Specification of the exposure function 
@@ -77,7 +101,7 @@ dlnm <- function(event, cause, geog, vuln_breakdown, vuln_group,
     # lagnk for bs and lagdf for ns
     
     # LAG - lag length in days 
-    lag = 2
+    lag = 2 # default if not specified in function call
     
     # LAGNK - Number of knots in lag function 
     lagnk = 1 
@@ -92,84 +116,7 @@ dlnm <- function(event, cause, geog, vuln_breakdown, vuln_group,
     }else{
       dfseas = 8
     }
-    
-    
-    # 4b) Heat related hospitalisations: arguments
-    # ~~~~~~~~~~~~~~~~~~~~~~~
-    
-  } else if (tolower(event) == "hospital admissions"){
-    
-    # CHECK DATA PATHS are current and correct!!
-    
-    # DATA PATHS:
-    # ~~~~
-    
-    # INPUT:
-    # Input folder paths:
-    if(tolower(cause) == "all causes"){
-      input_data_path <- "/conf/quality_indicators/Climate/data/base_data/all_hosps_data_ephss20_near_ALLcovid/"
-    }else if(tolower(cause) == "heat-related causes"){  
-      input_data_path <- "/conf/quality_indicators/Climate/data/base_data/heat_hosps_data_ephss20_near_ALLcovid/"
-    }
-    # Suffix of input data files
-    input_data_pattern <- paste0("heat_hum_hosps_data_", folder_geog, "_vuln_split.csv$")
-    
-    
-    # Define dependent variable (based on age group input)
-    if(tolower(vuln_breakdown) == "age"){
-      if(tolower(vuln_group) == "all"){dependent_col <-  "admissions"}
-      else if(tolower(vuln_group) == "under 65 yrs"){dependent_col <-  "adm_under_65yrs"}
-      else if(tolower(vuln_group) == "65 yrs plus"){dependent_col <-  "adm_65yrs_over"}
-    }else if(tolower(vuln_breakdown) == "sex"){
-      if(tolower(vuln_group) == "all"){dependent_col <-  "admissions"}
-      else if(tolower(vuln_group) == "male"){dependent_col <-  "adm_males"}
-      else if(tolower(vuln_group) == "female"){dependent_col <-  "adm_females"}
-    }else if(tolower(vuln_breakdown) == "deprivation index"){
-      if(tolower(vuln_group) == "all"){dependent_col <-  "admissions"}
-      else if(vuln_group == "1"){dependent_col <-  "adm_simd1"}
-      else if(vuln_group == "2"){dependent_col <-  "adm_simd2"}
-      else if(vuln_group == "3"){dependent_col <-  "adm_simd3"}
-      else if(vuln_group == "4"){dependent_col <-  "adm_simd4"}
-      else if(vuln_group == "5"){dependent_col <-  "adm_simd5"}
-      else if(vuln_group == "1 & 2"){dependent_col <-  "adm_simd1_2"}
-      else if(vuln_group == "4 & 5"){dependent_col <-  "adm_simd4_5"}
-      
-    }
-    
-    
-    # VARFUN: Specification of the exposure function 
-    # (natural cubic spline (ns) or b-spline (bs))
-    # NOTE: Can use "bs" if looking at a year, "ns" better for shorter time period
-    
-    varfun = "ns" 
-    
-    # VARDEGREE sets the degrees of freedom in the exposure function
-    vardegree =  length(varper) + 1
-    
-    # LAG FUNCTIONS
-    # Specification of the lag function
-    # The model uses either lagnk or lagdf - NOT BOTH
-    # Uses lagnk when using bs, or lagdf if using ns.
-    
-    # LAG - lag length in days 
-    lag = 2
-    
-    # LAGNK - Number of knots in lag function - use this if using b-spline
-    lagnk = 1 
-    
-    # LAGDF - degrees of freedom for lag function - use this if using natural cubic spline
-    lagdf = 2
-    
-    # With different summer month_choice, for hospitalisation comes a different
-    # degrees of freedom for seasonality
-    if(summer == TRUE){
-      dfseas = 2
-    }else{
-      dfseas = 8
-    }
-  }
-  
-  # if (!is.null(.progress)) .progress$incProgress(0.2)
+
   
   ## Define the non-indicator specific parameters ----
   # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -189,15 +136,12 @@ dlnm <- function(event, cause, geog, vuln_breakdown, vuln_group,
   # If controlling for COVID data, set one of the independent_cols arguments
   # to 'covid', otherwise set to 'NONE'
   independent_col1 = 'dow'  # day of week
-  independent_col2 = 'NONE' # scottish deprivation index
+  independent_col2 = 'NONE' 
   independent_col3 = 'covid'
-  #independent_col3 = 'NONE'
-  independent_col4 = 'NONE'
-  
+  independent_col4 = 'NONE' 
+
   if (tolower(event) %in% c("deaths") & independent_col3 %in% c("covid")){
     independent_col3 = 'covid_death' # deaths due to covid (codes used: U07.1 and U07.2)
-  } else if (tolower(event) %in% c("hospital admissions") & independent_col3 %in% c("covid")){
-    independent_col3 = 'covid_adm' # hospital admissions due to covid (codes used: U07.1 and U07.2)
   } else {
     independent_col3 = 'NONE'
   }
@@ -254,22 +198,16 @@ dlnm <- function(event, cause, geog, vuln_breakdown, vuln_group,
     dplyr::filter(year > 2004 & year < 2025) 
   
   # Add columns combining SIMD groups
-  if(tolower(event) == "deaths"){
-    df <- df %>% 
-      mutate(death_simd1_2 = death_simd1 + death_simd2, .after = death_simd2) %>% 
-      mutate(death_simd4_5 = death_simd4 + death_simd5, .after = death_simd5)
-  }else if(tolower(event) == "hospital admissions"){
-    df <- df %>% 
-      mutate(adm_simd1_2 = adm_simd1 + adm_simd2, .after = adm_simd2) %>% 
-      mutate(adm_simd4_5 = adm_simd4 + adm_simd5, .after = adm_simd5)
-  }
-  
+  df <- df %>% 
+    mutate(death_simd1_2 = death_simd1 + death_simd2, .after = death_simd2) %>% 
+    mutate(death_simd4_5 = death_simd4 + death_simd5, .after = death_simd5)
+
   # Use function to return summarised data (i.e. counts and proportions)
   summarised_events <- summarise_events(df, event, vuln_breakdown)
   
   # Rename the chosen dependent column (e.g. "adm_males") as "dependent"
   df <- df %>% 
-    rename(dependent = dependent_col)
+    rename(dependent = all_of(dependent_col))
   
   # In some cases, there is little/no data in a region breakdown e.g. SIMD 1/5 for island health boards.
   # This code creates a list so that they can be filtered out of the data and no model building
@@ -287,11 +225,15 @@ dlnm <- function(event, cause, geog, vuln_breakdown, vuln_group,
   # Save out median and mean weather conditions for reference
   
   scotmed <- median(df$weather)
-  scotmean<- mean(df$weather)
+  scotmean <- mean(df$weather)
+  
+  # Load in scotland-wide temperature values
+  scotland_temps <- read_csv("/conf/quality_indicators/Climate/data/base_data/scotland_wide_temps_2005_2024.csv")
   
   # If summer selected in dlnm_setup, then filter data to summer months
   if(summer == TRUE){
     df <- dplyr::filter(df, month %in% month_choice)
+    scotland_temps <- dplyr::filter(scotland_temps, month(date) %in% month_choice)
   }
   
   # Account for NAs
@@ -343,18 +285,19 @@ dlnm <- function(event, cause, geog, vuln_breakdown, vuln_group,
     # columns (i.e. cross-bases) which are created in the function
     independent_cols <- c(independent_col1, independent_col2, independent_col3, 
                           independent_col4, 
-                          'cb_temp', 
-                          'cb_hum', # cross bases for temp and humidity
-                          'ns(date, df = dfseas * length(unique(year)))') # to account for seasonality
-    
+                          "cb_temp", 
+                          "cb_hum", # cross bases for temp and humidity
+                          "ns(date_numeric, df = dfseas * length(unique(year)))") # to account for seasonality
+          
     # Remove any independent columns with 'NONE'
     independent_cols <- independent_cols[independent_cols != "NONE"]
     
     # Model formula
-    formula <- as.formula(paste(paste('dependent'), 
+    formula <- as.formula(paste(paste("dependent"), 
                                 " ~ ",
                                 paste(independent_cols, 
-                                      collapse = " + ")))
+                                      collapse = " + ")
+    ))
     
     # Variables for the cross-bases: Use EITHER knots OR df
     
@@ -379,6 +322,9 @@ dlnm <- function(event, cause, geog, vuln_breakdown, vuln_group,
                           lag = lag,
                           argvar = argvar,
                           arglag = arglag)
+   # class(cb_temp)
+   #   plot(cb_temp)
+   #   attributes(cb_temp)
     
     cb_hum <- crossbasis(dataset$humidity,
                          lag = lag,
@@ -400,15 +346,15 @@ dlnm <- function(event, cause, geog, vuln_breakdown, vuln_group,
     #              family=quasipoisson, data=dataset)
     # vif(model)
     
-    
     # Call the model
     model <- glm(formula,
                  dataset,
                  family = quasipoisson,
                  na.action = "na.exclude")
-    
+  
     # Return, as a list, the model, and cross-bases terms
-    return (list(model, cb_temp, cb_hum))
+    return (list(model, cb_temp, cb_hum
+    ))
   }
   
   # if (!is.null(.progress)) .progress$incProgress(0.4)
@@ -439,11 +385,39 @@ dlnm <- function(event, cause, geog, vuln_breakdown, vuln_group,
   # Name the levels of the vector
   names(vcov_) <- names(df_list)
   
+  reg_res <- setNames(vector("list", length(regions)), regions)
+
+  ## For exposure response curve, need to extract a couple of values from first 
+  ## model
+  data <- df_list[[1]]
+  c(model, cb_temp, cb_hum) %<-% define_model(dataset = data,
+                                              independent_col1 = independent_col1,
+                                              independent_col2 = independent_col2,
+                                              independent_col3 = independent_col3,
+                                              independent_col4 = independent_col4,
+                                              varfun = varfun,
+                                              varper = varper,
+                                              vardegree = vardegree,
+                                              lag = lag,
+                                              #lagnk = lagnk,
+                                              dfseas = dfseas)
+  ncoef <- ncol(cb_temp)
+  coef_cb_ <- matrix(NA,
+                     length(names(df_list)),
+                     ncoef,
+                     dimnames = list(names(df_list)))
+  
+  
+  # Vector the length of the number of regions
+  vcov_cb_ <- vector("list", length(names(df_list)))
+  
+  basis_list <- list()
+  
   # For each region, extract the data, run the model, centre the predictions 
   # and populate the coef_ matrix and vcov vector created above
   for(i in seq(length(df_list))) {
     
-    cat("Region: ", unique(df_list[[i]]$regnames))
+    cat("Region:", unique(df_list[[i]]$regnames), ",")
     
     # Extract data
     data <- df_list[[i]]
@@ -461,6 +435,8 @@ dlnm <- function(event, cause, geog, vuln_breakdown, vuln_group,
                                                 dfseas = dfseas)
     summary(model)
     
+    reg_res[[i]] <- resid(model)  # numeric vector of residuals
+    plot(resid(model))
     # Centre preds:
     cen <- quantile(data$weather, na.rm = TRUE, percentile)
     
@@ -481,30 +457,128 @@ dlnm <- function(event, cause, geog, vuln_breakdown, vuln_group,
     
     minweatherregions[i] <- closest_value
     
-    # Save out coef and vcov 
+    # Save out coef and vcov for exposure response chart (requires different format)
+    # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     coef_[i,] <- coef(pred)   # coefficients from the model
     vcov_[[i]] <- vcov(pred)  # variance-covariance matrix associated with the model coefficients
+  
+    cb_temp_centered <- cb_temp
+    attributes(cb_temp_centered)$cen <- cen
+    
+    # Extract coefficients and vcov directly from the model
+    coef_cb_[i, ] <- coef(model)[grep("cb_temp", names(coef(model)))]
+    vcov_cb_[[i]] <- vcov(model)[grep("cb_temp", rownames(vcov(model))),
+                                 grep("cb_temp", colnames(vcov(model)))]
+    
+    basis_temp <- cb_temp  
+    
   }
   
+  # Define Scotland's weather range over which the model predicts the RR
+  # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  # predvar_scot <- df %>%
+  #   group_by(date) %>%
+  #   #summarise(scot_temp = mean(weather)) %>% 
+  #   summarise(scot_temp = sum(weather*pop_col/sum(pop_col))) %>% 
+  #   pull(scot_temp)
+  
+  predvar_scot <- scotland_temps %>%
+    pull(scot_temp_popn_weighted)
+  
+  hist(predvar_scot)
+  
+  predvar <- quantile(predvar_scot, 1:99 / 100, na.rm = TRUE)
+  
+  ## Run meta model for exposure response function 
+  ## ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  mv_rr_lag <- mixmeta(coef_cb_ ~ 1, vcov_cb_, method = "reml")
+  summary(mv_rr_lag)
+  
+  #rebuild crossbasis:
+  argvar_scot <- list(x = predvar_scot,
+                      fun = varfun,
+                      df = vardegree)
+  
+  arglag <- list(fun = varfun, 
+                 df = lagdf)#, 
+  
+  basis_temp <- crossbasis(predvar,
+                           lag = lag,
+                           argvar = argvar_scot,
+                           arglag = arglag)  # match your define_model settings
+  
+  # Predict to find MMT
+  cp <- crosspred(basis_temp,
+                  coef = coef(mv_rr_lag),
+                  vcov = vcov(mv_rr_lag),
+                  model.link = "log")
+  
+  # Define the centre value for the curve (based on the minimum mortality from the national model)
+  cen_scot <- cp$predvar[which.min(cp$allRRfit)]
+
+  # 4. Predict again, properly centred
+  cp_mmt <- crosspred(basis_temp,
+                  coef = coef(mv_rr_lag),
+                  vcov = vcov(mv_rr_lag),
+                  model.link = "log",
+                  cen = cen_scot)
+  
+  # Save out lag-RR chart
+  png(paste0(results_filepath, "/lag_response_plot19.png"),
+      width = 2000, height = 1500, res = 300)
+  
+  print(plot(cp_mmt, "slices", var = 19, ci = "lines",
+       main = "Lag-Response for Scotland", xlab = "Lag (days)", ylab = "RR"))
+  
+  dev.off()
+  
+  ## Other lag plots for reference:
+  
+  png(paste0(results_filepath, "/lag_response_plot20.png"),
+      width = 2000, height = 1500, res = 300)
+  
+  print(plot(cp_mmt, "slices", var = 20, ci = "lines",
+             main = "Lag-Response for Scotland", xlab = "Lag (days)", ylab = "RR"))
+  
+  dev.off()
+  
+  png(paste0(results_filepath, "/lag_response_plot21.png"),
+      width = 2000, height = 1500, res = 300)
+  
+  print(plot(cp_mmt, "slices", var = 21, ci = "lines",
+             main = "Lag-Response for Scotland", xlab = "Lag (days)", ylab = "RR"))
+  
+  dev.off()
+  
+  png(paste0(results_filepath, "/lag_response_plot22.png"),
+      width = 2000, height = 1500, res = 300)
+  
+  print(plot(cp_mmt, "slices", var = 22, ci = "lines",
+             main = "Lag-Response for Scotland", xlab = "Lag (days)", ylab = "RR"))
+  
+  dev.off()
+  
+ 
   # 5 - Run_meta_model - Extracted (only used once) ---------------------------------------
   
   # Run meta model next to compress the initial model into one coef and vcov for
   # each region. 
   # First need to assign coef_ output to coef and vcov_ output
   # to vcov otherwise wrong object read in code
-  
-  coef <- coef_  
-  vcov <- vcov_  
+  # 
+  # Note that the model you fit for the main analysis is not exactly the same model
+  # that is called to generate the exposure–lag association plots. The main model contains
+  # more information than the simplified version for the exposure-lag plots.
   
   if(!is.list(df_list) | !is.data.frame(df_list[[1]])) {
     stop("Argument 'df_list' must be a list of data frames")
   }
   
-  if(!is.matrix(coef) | !is.numeric(coef)) {
+  if(!is.matrix(coef_) | !is.numeric(coef_)) {
     stop("Argument 'coef' must be a numeric matrix")
   }
   
-  if(!is.list(vcov) | !is.matrix(vcov[[1]])) {
+  if(!is.list(vcov_) | !is.matrix(vcov_[[1]])) {
     stop("Argument 'vcov' must be a list of matrices")
   }
   
@@ -532,12 +606,11 @@ dlnm <- function(event, cause, geog, vuln_breakdown, vuln_group,
   
   # Create meta formula so that the metapredictors selected in earlier are called
   if (length(metapreds) == 0) {
-    metaformula_string <- "coef ~ 1"
+    metaformula_string <- "coef_ ~ 1"
   } else {
-    metaformula_string <- paste("coef ~", paste(metapreds, collapse = "+"))
+    metaformula_string <- paste("coef_ ~", paste(metapreds, collapse = "+"))
   }
   metaformula <- formula(metaformula_string)
-  
   print(metaformula)
   
   # Meta-analysis
@@ -545,8 +618,8 @@ dlnm <- function(event, cause, geog, vuln_breakdown, vuln_group,
   
   mv <- mixmeta(metaformula,
                 # Insert other meta-predictors here for testing
-                vcov,
-                data = as.data.frame(unique(names(df_list))), # was data = regions_df
+                vcov_,
+                data = data.frame(study = names(df_list)), # was data = regions_df
                 control = list(showiter = TRUE))
   
   aic <- summary(mv)[["AIC"]]
@@ -554,7 +627,8 @@ dlnm <- function(event, cause, geog, vuln_breakdown, vuln_group,
   
   # SUMMARY FROM META ANALYSIS
   mvsummary <- summary(mv)
-  
+  mvsummary
+
   
   ## 6 - Model validation --------------------------------------------------
   
@@ -565,15 +639,17 @@ dlnm <- function(event, cause, geog, vuln_breakdown, vuln_group,
   # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
   
   blup <- blup(mv,vcov=T)
-  
-  
+ 
   # 7 - Calculate Scotland level predictions --------------------------------
   
   # Exclude extreme weathers
   #predvar <- quantile(data$weather, 1:99/100, na.rm=T)
+   
+  # Uses the previously-calculated population-weighted means across Scotland
+  predvar_scot <- scotland_temps %>%
+    pull(scot_temp_popn_weighted)
   
-  # All weathers
-  predvar_scot <- data$weather
+  hist(predvar_scot)
   
   argvar_scot <- list(x = predvar_scot,
                       fun = varfun,
@@ -584,15 +660,24 @@ dlnm <- function(event, cause, geog, vuln_breakdown, vuln_group,
   
   bvar_scot <- do.call(onebasis, argvar_scot)
   
-  cen_scot <- median(as.numeric(minweatherregions)) # 
+  cp_scot <- crosspred(bvar_scot,
+                         coef = coef(mv),
+                         vcov = vcov(mv),
+                         model.link = "log",
+                         by = 0.1)
+ 
+  # Define the centre value for the curve (based on the minimum mortality from the national model)
+  cen_scot <- cp_scot$predvar[which.min(cp_scot$allRRfit)]
+  
+  # 4. Predict again, properly centred
   
   pred_scot <- crosspred(bvar_scot,
                          coef = coef(mv),
                          vcov = vcov(mv),
                          model.link = "log",
                          by = 0.1,
-                         #at=seq(5, 35, by=0.1),
                          cen = cen_scot)
+  plot(pred_scot, "overall")
   
   # calculate 25 degree prediction
   pred_scot25 <- crosspred(bvar_scot,
@@ -608,6 +693,7 @@ dlnm <- function(event, cause, geog, vuln_breakdown, vuln_group,
                            model.link = "log",
                            at=30,
                            cen = cen_scot)
+  
   
   # 8 - Create Scotland RR plot ---------------------------------------------
   ## ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -628,7 +714,7 @@ dlnm <- function(event, cause, geog, vuln_breakdown, vuln_group,
     which.max(pred_scot$allRRfit < 1.00001 & pred_scot$allRRfit > 0.99999)))
   
   # Line for the 97.5th percentile (the threshold for AN in the high heat chart)
-  high_heat_line <- quantile(data$weather, 97.5/100, na.rm = TRUE)
+  high_heat_line <- quantile(predvar_scot, 97.5/100, na.rm = TRUE)
   
   # line for heatwave day (i.e. 25 degrees celsius)
   heatwaveday <- 25
@@ -638,24 +724,29 @@ dlnm <- function(event, cause, geog, vuln_breakdown, vuln_group,
     which.max(which(pred_scot$allRRfit > 1.005))))
   
   # The point at which the RR estimate crosses 1.1 - i.e high risk
-  high_risk <- as.numeric(names(
-    which.max(which(pred_scot$allRRfit >= 1 & pred_scot$allRRfit <= 1.1) )))
+  # - in some cases, this value is never reached so there's no associated temp
+  if(max(pred_scot$allRRfit) >= 1.1){
+    high_risk <- as.numeric(names(
+      # want the minimum temperature at which RR is >= 1.1 but also rounds to 1.1
+      which.min(which(pred_scot$allRRfit >= 1.1 & round(pred_scot$allRRfit, 1) == 1.1))
+      ))
+  } else{
+    high_risk <- NA
+  }
   
   # The point at which the lower confidence interval for RR is above 1.005: i.e. the
   # point at which we can say the risk of mortality starts to increase
-  risk_increase <- as.numeric(names(
-    which.max(which(pred_scot$allRRlow < 1.006))))
+  # - in some cases, this value is never reached so there's no associated temp
+  if(max(pred_scot$allRRlow) > 1.005){
+    risk_increase <- as.numeric(names(
+      which.max(which(pred_scot$allRRlow < 1.006))
+    ))
+  } else{
+    risk_increase <- NA
+  }
   
   owr_low <- as.numeric(names(which.min(which(pred_scot$allRRlow <= 1.006))))
   owr_high <- as.numeric(names(which.max(which(pred_scot$allRRlow <= 1.006))))
-  
-  # Create segments for the chart so they can be colour coded according to the 
-  # above points.
-  
-  segment_b <- pred_scot$predvar >= owr_high & pred_scot$predvar <= risk_increase
-  segment_c <- pred_scot$predvar >= risk_increase & pred_scot$predvar <= high_risk
-  segment_d <- pred_scot$predvar >= high_risk & pred_scot$predvar <= heatwaveday
-  segment_e <- pred_scot$predvar >= heatwaveday
   
   
   # Create plot 
@@ -669,7 +760,7 @@ dlnm <- function(event, cause, geog, vuln_breakdown, vuln_group,
     upper = pred_scot$allRRhigh     # Upper confidence interval
   )
   
-  data25 <- data_frame(
+  data25 <- tibble(
     x = pred_scot25$predvar,
     rr = pred_scot25$allRRfit,
     lower = pred_scot25$allRRlow,     # Lower confidence interval
@@ -680,15 +771,17 @@ dlnm <- function(event, cause, geog, vuln_breakdown, vuln_group,
   rr_list <- list()
   rr_list[["Scotland"]] <- plot_data_scot
   
-  breaks_scot <- c(min(data$weather, na.rm = TRUE) - 1,
+  breaks_scot <- c(min(predvar_scot, na.rm = TRUE) - 1,
                    seq(pred_scot$predvar[1],
                        pred_scot$predvar[length(pred_scot$predvar)],
                        length = 30),
-                   max(data$weather, na.rm = TRUE) + 1)
+                   max(predvar_scot, na.rm = TRUE) + 1)
   
-  hist_scot <- hist(data$weather, breaks = breaks_scot, plot = FALSE)
+  hist_scot <- hist(predvar_scot, breaks = breaks_scot, plot = FALSE)
   
-  hist_data_scot <- data.frame(
+  plot(hist_scot)
+  
+  hist_data_scot <- tibble(
     region = "Scotland",
     x = hist_scot$mids,     # Midpoints of histogram bins
     density = hist_scot$density,  # Scaled density values
@@ -728,14 +821,16 @@ dlnm <- function(event, cause, geog, vuln_breakdown, vuln_group,
     range(x$weather,na.rm=T)))
   
   
-  # Calculate optimal weather temperatures and minimum mortality 
-  # looping across all regions
-  
+  # # Calculate optimal weather temperatures and minimum mortality 
+  # # looping across all regions
+  # 
   for(i in seq(length(df_list))) {
-    
+
+    # When checking the code for each region, assign i to a value from 1:14 represnting the 14 healthboards
+    # i = 1
     data <- df_list[[i]]
     predvar <- quantile(data$weather, 1:99 / 100, na.rm = TRUE)
-    
+
     # Redefine the function using all arguments (boundary knots included)
     argvar_ <- list(x = predvar, fun = varfun,
                     df = vardegree)
@@ -743,19 +838,19 @@ dlnm <- function(event, cause, geog, vuln_breakdown, vuln_group,
     #                varper / 100,
     #               na.rm = TRUE),
     #Bound = range(data$weather, na.rm = TRUE))
-    
+
     bvar_ <- do.call(onebasis, argvar_)
-    
+
     # Extract the minimum value from the product matrix of bvar_ *blup
     minpercregions_[i] <- (1:99)[which.min(bvar_ %*%
                                              blup[[i]]$blup)]
     minweatherregions_[i] <- quantile(data$weather,
                                       minpercregions_[i] / 100,
                                       na.rm = TRUE)
-    
+
     # Use crosspred, using the coef and vcov from the blup to calculate
     # optimal weather range.
-    
+
     cp <- crosspred(bvar_,
                     coef = blup[[i]]$blup,
                     vcov = blup[[i]]$vcov,
@@ -765,23 +860,28 @@ dlnm <- function(event, cause, geog, vuln_breakdown, vuln_group,
                     from = ranges[i,1],
                     to = ranges[i,2])
     
+    plot(cp)
+
     # Extract the lower and upper limits where the RR is between 1 and 1.1
     optimal_weather_range[i,"lower"] <- as.numeric(names(
       which.min(which(cp$allRRfit >= 1 & cp$allRRfit <= 1.1))))
     optimal_weather_range[i, "upper"] <- as.numeric(names(
       which.max(which(cp$allRRfit >= 1 & cp$allRRfit <= 1.1))))
-    
+
     below_one <- which(cp$allRRfit < 1)
     above_OWR <- which(as.numeric(names(cp$allRRfit)) > optimal_weather_range[i, "upper"])
     below_OWR <- which(as.numeric(names(cp$allRRfit))< optimal_weather_range[i, "lower"])
-    
+
   }
-  
+
   #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
   # 10 - Create Regions RR plot ----------------------------------------------
   #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
   
   for(i in seq(length(df_list))) {
+    
+    # When checking the code for each region, assign i to a value from 1:14 represnting the 14 healthboards
+    #i = 1
     
     data <- df_list[[i]]
     
@@ -798,9 +898,8 @@ dlnm <- function(event, cause, geog, vuln_breakdown, vuln_group,
     coefs <- blup[[i]]$blup
     vcovs <- blup[[i]]$vcov
     model <- NULL
-    cen <- cen_scot # centre based on Scotland MMT
-    #cen <- minweatherregions[i]
-    #cen <-  quantile(data$weather, na.rm = TRUE, 0.75)
+    cen <- quantile(data$weather, na.rm= TRUE, 0.5) # centre at 50th percentile (as for original regional
+    # model)
     
     pred <- crosspred(bvar,
                       coef = blup[[i]]$blup,
@@ -808,6 +907,7 @@ dlnm <- function(event, cause, geog, vuln_breakdown, vuln_group,
                       model.link = "log",
                       by = 0.1,
                       cen = cen)
+    plot(pred)
     
     # line for the middle point where the RR is 1
     reg_lowestrisk_min <- as.numeric(names(
@@ -826,9 +926,16 @@ dlnm <- function(event, cause, geog, vuln_breakdown, vuln_group,
     reg_rr_increase <- as.numeric(names(
       which.max(which(pred$allRRfit > 1.005))))
     
-    # The point at which the RR estimate crosses 1.1 -i.e high risk
-    reg_high_risk <- as.numeric(names(
-      which.max(which(pred$allRRfit >= 1 & pred$allRRfit <= 1.1) )))
+    # The point at which the RR estimate crosses 1.1 - i.e high risk
+    # - in some cases, this value is never reached so there's no associated temp
+    if(max(pred_scot$allRRfit) >= 1.1){
+      reg_high_risk <- as.numeric(names(
+        # want the minimum temperature at which RR is >= 1.1 but also rounds to 1.1
+        which.min(which(pred_scot$allRRfit >= 1.1 & round(pred_scot$allRRfit, 1) == 1.1))
+      ))
+    } else{
+      reg_high_risk <- NA
+    }
     
     # the point at which the lower confidence interval for RR is above 1.005: i.e. the
     # point at which we can say the risk of mortality starts to increase
@@ -838,14 +945,6 @@ dlnm <- function(event, cause, geog, vuln_breakdown, vuln_group,
     reg_owr_low <- as.numeric(names(which.min(which(pred$allRRlow <= 1.006))))
     reg_owr_high <- as.numeric(names(which.max(which(pred$allRRlow <= 1.006))))
     
-    reg_optimal_segment <- (pred$predvar >= owr_low) & (pred$predvar <= owr_high)
-    reg_segment_a <- pred$predvar <= reg_owr_low
-    reg_segment_b <- pred$predvar >= reg_owr_high & pred$predvar <= reg_risk_increase
-    reg_segment_c <- pred$predvar >= reg_risk_increase & pred$predvar <= reg_high_risk
-    reg_segment_d <- pred$predvar >= reg_high_risk & pred$predvar <= heatwaveday
-    reg_segment_e <- pred$predvar >= heatwaveday
-    
-    relative_risk_vals<- pred$allRRfit
     
     # Create a data frame for plotting
     plot_data <- data.frame(
@@ -867,6 +966,8 @@ dlnm <- function(event, cause, geog, vuln_breakdown, vuln_group,
                 max(data$weather, na.rm = TRUE) + 1)
     
     hist <- hist(data$weather, breaks = breaks, plot = FALSE)
+    
+    plot(hist)
     
     # Histogram data
     hist_data <- data.frame(
@@ -905,6 +1006,29 @@ dlnm <- function(event, cause, geog, vuln_breakdown, vuln_group,
   per <- t(sapply(df_list, function(x)
     quantile(x$weather, c(90, 97.5)/100, na.rm = T)))
   
+  #Extract Scotland's risk increase temperature
+  # Scot thresholds filepath:
+  scot_thresholds <- file.path(
+    "/conf/quality_indicators/Climate/data/dlnm_results/sliding_window_models/2026correction",
+    "all_causes/deaths_nhs_health_board_by_age_all_years_window/all/temp_thresholds.csv")
+  
+  if (file.exists(scot_thresholds)) {
+    
+    scot_risk_increase <- read.csv(paste0(scot_thresholds)) %>%
+      dplyr::filter(region == "Scotland") %>%
+      dplyr::select(risk_increase_temp) %>%
+      dplyr::pull()
+    
+  } else if(vuln_breakdown == "Age" & vuln_group == "All") {
+    
+    scot_risk_increase = temps_rr_df$risk_increase_temp[[1]]
+    
+  }else{
+    
+    stop(paste("Scotland threshold file for full model does not exist.",
+   "Please run the full model, where vuln_breakdown = Age and vuln_group = All"))
+  }
+  
   # Create a data frame with final thresholds to use 
   # (Some legacy thresholds retained)
   an_thresholds <- as.data.frame(cbind(per,optimal_weather_range)) %>%
@@ -912,9 +1036,9 @@ dlnm <- function(event, cause, geog, vuln_breakdown, vuln_group,
       max_high_heat = 100,
       moderate_cold_OWR = lower,
       low_risk = lowestrisk_max, #using Scotland level mmt/risk increase for consistency
-      risk_increase = risk_increase,
-      high_risk = high_risk,
-      scot_risk_inc = 18.2,
+      risk_increase = if_else(is.na(risk_increase), 1000, risk_increase), # if there is no RI threshold, set very high so no events are attributed
+      high_risk = if_else(is.na(high_risk), 1000, high_risk), # if there is no HR threshold, set very high so no events are attributed
+      scot_risk_inc = scot_risk_increase,
       moderate_heat_OWR = upper,
       moderate_heat_90 = `90%`,
       high_moderate_heatOWR = ifelse(moderate_heat_OWR > `97.5%`,
@@ -962,6 +1086,7 @@ dlnm <- function(event, cause, geog, vuln_breakdown, vuln_group,
     
     # Print
     # cat("Processing region:", names(df_list)[i])
+    #i = 1
     
     # Extract the data
     data <- df_list[[i]]
@@ -970,8 +1095,19 @@ dlnm <- function(event, cause, geog, vuln_breakdown, vuln_group,
     coefs <- blup[[i]]$blup
     vcovs <- blup[[i]]$vcov
     
+    # -------------------- QA: Check BLUP objects --------------------
+    if(any(is.na(coefs))) warning("NA coefficients in region ", names(df_list)[i])
+    if(any(is.na(vcovs))) warning("NA vcov elements in region ", names(df_list)[i])
+    if(nrow(vcovs) != length(coefs))
+      warning("Mismatch between coef and vcov dimensions in region ", names(df_list)[i])
+    
+    # Optional: condition number of vcov to detect singularity
+    if(kappa(vcovs) > 1e12)
+      warning("High condition number in vcov (possible instability): ", names(df_list)[i])
+    # ---------------------------------------------------------------
+    
     # Run model
-    c(model, cb_temp, cb_hum)%<-% define_model(dataset = data,
+    c(model, cb_temp, cb_hum) %<-% define_model(dataset = data,
                                                independent_col1 = independent_col1,
                                                independent_col2 = independent_col2,
                                                independent_col3 = independent_col3,
@@ -986,8 +1122,7 @@ dlnm <- function(event, cause, geog, vuln_breakdown, vuln_group,
     # Using coefs and vcovs from blup, crossbasis has now been extracted,
     # so model argument should be null.
     model <- NULL
-    
-    # Return heat attributable deaths/hosps for the output year
+    # Return heat attributable deaths for the output year
     #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     for(timeperiod in allyears){
       #  Create empty matrix 
@@ -998,9 +1133,6 @@ dlnm <- function(event, cause, geog, vuln_breakdown, vuln_group,
                                          "moderate_heat", "high_heat",
                                          "heatwave_day", "heatwave"
                                        )))
-      
-      # Number of simulation runs for computing empirical CI
-      nsim_ <- 1000
       
       # Create the array to store the CI of attributable deaths
       arraysim <- array(NA, dim = c(length(names(df_list)), 8, nsim_),
@@ -1051,6 +1183,25 @@ dlnm <- function(event, cause, geog, vuln_breakdown, vuln_group,
         dplyr::mutate(heatwave_temp = ifelse(heatwave_flag == 1, weather, minweatherregions_[i])) %>%
         dplyr::select(-high_heat_flag,-heatwave_flag)
       
+      # -------------------- QA: Inspect year subset --------------------
+      if(nrow(data_output_year) == 0)
+        stop("ERROR: No data for year ", timeperiod, " in region ", names(df_list)[i])
+      
+      # Exposure sanity
+      if(any(is.na(data_output_year$weather)))
+        warning("Missing temperature in year ", timeperiod, " region ", names(df_list)[i])
+      
+      # Dependent variable QA
+      if(any(data_output_year$dependent < 0))
+        stop("Negative outcome values observed.")
+      
+      # Check reference temp
+      if(!(minweatherregions_[i] >= min(data_output_year$weather) &
+           minweatherregions_[i] <= max(data_output_year$weather))){
+        warning("Centering value outside observed temperature range in region ", names(df_list)[i])
+      }
+      # ---------------------------------------------------------------
+      
       # Attribution over 90th percentile
       matsim[i, "all_heat"] <- attrdl(x = data_output_year$weather,
                                       basis = cb_temp,
@@ -1091,7 +1242,7 @@ dlnm <- function(event, cause, geog, vuln_breakdown, vuln_group,
                                        range = c(an_thresholds[i,"high_risk"],
                                                  an_thresholds[i,"max_high_heat"]))
       
-      #Attribution above RR = 1.1
+      #Attribution above scotland RI
       matsim[i, "scot_risk_inc"] <- attrdl(x = data_output_year$weather,
                                            basis = cb_temp,
                                            cases = data_output_year$dependent,
@@ -1101,7 +1252,7 @@ dlnm <- function(event, cause, geog, vuln_breakdown, vuln_group,
                                            dir = "forw",
                                            cen = minweatherregions_[i],
                                            model = model,
-                                           range = c(18.2,
+                                           range = c(scot_risk_increase,
                                                      an_thresholds[i,"max_high_heat"]))
       
       # Attribution between 90 and 97.5th percentile
@@ -1200,7 +1351,7 @@ dlnm <- function(event, cause, geog, vuln_breakdown, vuln_group,
                                                         an_thresholds[i,"max_high_heat"]),
                                               sim = T, nsim = nsim_)
       
-      #Attribution above scotland RI (18.2 degrees)
+      #Attribution above scotland RI 
       arraysim[i, "scot_risk_inc_ci", ] <- attrdl(x = data_output_year$weather,
                                                   basis = cb_temp,
                                                   cases = data_output_year$dependent,
@@ -1210,7 +1361,7 @@ dlnm <- function(event, cause, geog, vuln_breakdown, vuln_group,
                                                   dir = "forw",
                                                   cen = minweatherregions_[i],
                                                   model = model,
-                                                  range = c(18.2,
+                                                  range = c(scot_risk_increase,
                                                             an_thresholds[i,"max_high_heat"]),
                                                   sim = T, nsim = nsim_)
       
@@ -1344,48 +1495,6 @@ dlnm <- function(event, cause, geog, vuln_breakdown, vuln_group,
     left_join(scot_att_low_all, by = "year")%>%
     left_join(scot_att_high_all, by = "year")
   
-  
-  # Extract annual weather data for charts from initial df
-  scot_weather <- df %>%
-    group_by(year)%>%
-    summarise(max = max(weather),
-              min = min(weather),
-              mean = mean(weather))%>%
-    ungroup()
-  
-  # Create quick plots for Scotland's weather
-  scot_weather <- df %>%
-    group_by(year)%>%
-    summarise(max = max(weather),
-              min = min(weather),
-              mean = mean(weather))%>%
-    ungroup()
-  
-  # Calculate number of days over 23.5 per year
-  
-  hot_days <- df %>%
-    mutate(risk_inc = ifelse(weather >= 19.4, 1, 0),
-           risk_inc_hosp = ifelse(weather >= 10.5,1,0),
-           high_risk = ifelse(weather >= 23.1,1,0),
-           high_risk_hosp = ifelse(weather >= 18.5,1,0),
-           heatwave = ifelse(weather >=25,1,0)
-    )%>%
-    group_by(year) %>%
-    summarise(risk_inc = sum(risk_inc),
-              risk_inc_hosp = sum(risk_inc_hosp),
-              high_risk = sum(high_risk),
-              high_risk_hosp = sum(high_risk_hosp),
-              heatwave = sum(heatwave))%>%
-    ungroup()
-  
-  hot_days_long <- hot_days %>%
-    pivot_longer(cols = c(risk_inc,
-                          high_risk,
-                          high_risk_hosp,
-                          heatwave),
-                 names_to = "threshold",
-                 values_to = "number_of_days")
-  
   # Extract region estimates
   # Regions-specific
   anregions <- all_matsim
@@ -1469,8 +1578,8 @@ dlnm <- function(event, cause, geog, vuln_breakdown, vuln_group,
           sex_name == "F" ~ "Female"
         ),
         age_band = case_when(
-          age <= 65 ~ "Under 65 yrs",
-          TRUE ~ "65 yrs plus"
+          age < 65 ~ "Under 65 yrs",
+          age >= 65 ~ "65 yrs plus"
         ))
     
     # Scotland-wide population data:
@@ -1482,17 +1591,19 @@ dlnm <- function(event, cause, geog, vuln_breakdown, vuln_group,
       group_by(year, simd) %>% 
       summarise(pop = sum(pop))
     
-    # Popn data only up to 2022, need to copy and paste for remaining years
-    # Extract 2022 rows only
-    simd_2022_pop <- scot_pop_simd_data %>% 
-      filter(year == 2022)
-    
-    # Create copies for 2023 and 2024
-    simd_2023_pop <- simd_2022_pop %>% mutate(year = 2023)
-    simd_2024_pop <- simd_2022_pop %>% mutate(year = 2024)
-    
-    # Combine all together
-    scot_pop_simd_data <- bind_rows(scot_pop_simd_data, simd_2023_pop, simd_2024_pop)
+    # If model includes 2025, do the following:
+    if(2025 %in% allyears){
+      # Popn data only up to 2024, need to copy and paste for 2025
+      # Extract 2024 rows only
+      simd_2024_pop <- scot_pop_simd_data %>% 
+        filter(year == 2024)
+      
+      # Create copy for 2025
+      simd_2025_pop <- simd_2024_pop %>% mutate(year = 2025)
+      
+      # Combine all together
+      scot_pop_simd_data <- bind_rows(scot_pop_simd_data, simd_2025_pop)
+    }
     
     # Depending on vulnerability breakdown, calculate pop col
     if(tolower(vuln_breakdown) == "age"){
@@ -1519,12 +1630,19 @@ dlnm <- function(event, cause, geog, vuln_breakdown, vuln_group,
       }else{
         simd_filter <- as.numeric(vuln_group)
       }
+      # filter data based on selected SIMD(s)
       pop_col_new <- scot_pop_simd_data %>% 
         filter(simd %in% simd_filter) %>% 
         group_by(year) %>% 
         summarise(pop_col_new = sum(pop)) %>% 
         ungroup() %>% 
         pull(pop_col_new)
+    }else if(tolower(vuln_breakdown) == "condition"){
+      pop_col_new <- scot_pop_data %>% 
+        ungroup(sex_name) %>%
+        group_by(year) %>% 
+        summarise(pop_col_new = sum(pop)) %>% 
+        pull(pop_col_new) 
     }
     
     # Replace old population values with new ones in antot dataframes
@@ -1545,8 +1663,6 @@ dlnm <- function(event, cause, geog, vuln_breakdown, vuln_group,
   
   artothigh <- antothigh %>%
     mutate(across(c(2:8), ~ ./pop_col * 100000, .names = "ar_{.col}"))
-  
-  
   
   # Now create attributable rates datasets and plots for each thresholds:
   # Scotland level
@@ -1572,7 +1688,7 @@ dlnm <- function(event, cause, geog, vuln_breakdown, vuln_group,
   
   # Attributable to Scotland increasing risk
   att_rate_scot_risk_inc <- bind_cols(artot,artotlow$ar_scot_risk_inc_ci,
-                                      artothigh$scot_risk_inc_ci) %>%
+                                      artothigh$ar_scot_risk_inc_ci) %>%
     rename(low_ci = "...17",
            high_ci = "...18")
   
@@ -1632,7 +1748,8 @@ dlnm <- function(event, cause, geog, vuln_breakdown, vuln_group,
   
   dat <- all_matsim %>%
     left_join(att_low_all, by = c("year", "regnames"))%>%
-    left_join(att_high_all, by = c("year", "regnames"))
+    left_join(att_high_all, by = c("year", "regnames"))%>%
+    select(-c(ci.x,ci.y))
   
   # Get unique areas
   region_names <- names(df_list)
@@ -1653,17 +1770,16 @@ dlnm <- function(event, cause, geog, vuln_breakdown, vuln_group,
       group_by(year, hb2019, hb2019name, simd) %>%
       summarise(pop = sum(pop))
     
-    # Popn SIMD data only up to 2022, need to copy and paste for remaining years
-    # Extract 2022 rows only
-    simd_2022_pop_hb <- hb_pop_simd_data %>% 
-      filter(year == 2022)
+    # Popn SIMD data only up to 2024, need to copy and paste for 2025
+    # Extract 2024 rows only
+    simd_2024_pop_hb <- hb_pop_simd_data %>% 
+      filter(year == 2024)
     
-    # Create copies for 2023 and 2024
-    simd_2023_pop_hb <- simd_2022_pop_hb %>% mutate(year = 2023)
-    simd_2024_pop_hb <- simd_2022_pop_hb %>% mutate(year = 2024)
-    
+    # Create copy for 2025
+    simd_2025_pop_hb <- simd_2024_pop_hb %>% mutate(year = 2025)
+
     # Combine all together
-    hb_pop_simd_data <- bind_rows(hb_pop_simd_data, simd_2023_pop_hb, simd_2024_pop_hb)
+    hb_pop_simd_data <- bind_rows(hb_pop_simd_data, simd_2025_pop_hb)
     
     # Calculate pop col based on vulnerability group
     if(tolower(vuln_breakdown) == "age"){
@@ -1691,6 +1807,14 @@ dlnm <- function(event, cause, geog, vuln_breakdown, vuln_group,
         summarise(pop_col = sum(pop)) %>% 
         ungroup() %>%
         select(-simd) %>% 
+        rename(regnames = hb2019name)
+    }else if(tolower(vuln_breakdown) == "condition"){
+      # want full NHS board population as denominator for condition ARs
+      pops <- hb_pop_data %>% 
+        ungroup() %>%
+        group_by(year, hb2019name) %>% 
+        summarise(pop_col = sum(pop)) %>% 
+        ungroup() %>%
         rename(regnames = hb2019name)
     }
   }
@@ -1734,8 +1858,6 @@ dlnm <- function(event, cause, geog, vuln_breakdown, vuln_group,
     left_join(arregionslow, by = c("year", "regnames", "pop_col"))%>%
     left_join(arregionshigh, by = c("year", "regnames", "pop_col"))
   
-  # Get unique areas
-  region_names<- names(df_list)
   
   # if (!is.null(.progress)) .progress$incProgress(1)
   # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -1750,10 +1872,16 @@ dlnm <- function(event, cause, geog, vuln_breakdown, vuln_group,
     artot_scotland,
     dat,
     ARdat,
+    summarised_events,
+    # the below variables are used for sensitivity analyses
     aic,
-    summarised_events, 
-    residuals
+    residuals,
+    reg_res,
+    c(varfun, vardegree, lag, lagnk, lagdf, dfseas, percentile),
+    c(independent_col1, 
+      independent_col2,
+      independent_col3,
+      independent_col4)
   ))
   
 }
-
