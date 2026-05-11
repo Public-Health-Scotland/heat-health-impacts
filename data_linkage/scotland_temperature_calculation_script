@@ -1,0 +1,69 @@
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# scotland_temperature_calculation_script.R
+# March 2026
+# Al Morgan
+# 
+# This script takes the Scottish population and meteorological data (at the 
+# intermediate zone level) used in the DLNM data linkage scripts and combines 
+# them to calculate a population-weighted Scotland-wide average max temperature
+# for each day in the chosen set of years.
+
+# A CSV file is saved out to the data/base_data folder of the Climate folder.
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+
+# Set up environment similar to DLNM
+source(here::here("setup/setup_environment.R"))
+
+
+# Loop through chosen years to calculate daily Scotland-wide temperatures
+for(year_n in 2005:2024){
+  cat("Processing", year_n, "\n")
+  # 1. Population extract -----------------------------------------------------------
+  
+  pop_iz_filtered <- pop_iz %>% 
+    filter(year == year_n)
+  
+  pop_iz_short <- pop_iz_filtered |> 
+    dplyr::select(c(year, intzone2011,intzone2011name, total_pop)) |> 
+    group_by(year, intzone2011, intzone2011name) |> 
+    summarise(total_pop_iz = sum(total_pop))
+
+  
+  # 2. Add met data ----------------------------------------------------------
+  
+  # Filter down to year
+  met_geo_filtered <- met_geo |> 
+    mutate(year = year(time), .after = time) %>% 
+    filter(year == year_n)
+  
+  # Join weather data, add date for SMR linkage and join to geog data
+  temp_pop_data <- left_join(met_geo_filtered, pop_iz_short, by = c("InterZone" = "intzone2011")) %>% 
+    mutate(date = as.Date(time, format = "%Y-%m-%d")) 
+  
+  ### BEFORE CONTINUING, CHECK THAT NO populations HAVE MISSING DATA
+  check <- filter(temp_pop_data, is.na(total_pop_iz))
+  if(nrow(check) != 0){error("Some IZ population data missing")}
+  
+  # Calculate 
+  temp_pop_data_year <- temp_pop_data %>% 
+    group_by(date) %>% 
+    summarise(
+      total_popn = sum(total_pop_iz),
+      scot_temp_popn_weighted = sum(max_temperature*total_pop_iz/sum(total_pop_iz)),
+      scot_temp_mean = mean(max_temperature)
+    ) 
+  
+  # if first year in loop, initiate total_data dataframe,
+  # otherwise, bind the new data onto the dataframe
+  if(year_n == 2005){
+    total_data <- temp_pop_data_year
+  }
+  else{
+    total_data <- total_data %>% 
+      bind_rows(temp_pop_data_year)
+  }  
+}
+
+# Save out data in csv
+write_csv(total_data, "/conf/quality_indicators/Climate/data/base_data/scotland_wide_temps_2005_2024.csv")
