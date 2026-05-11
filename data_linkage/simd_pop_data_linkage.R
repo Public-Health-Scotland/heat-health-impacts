@@ -26,8 +26,8 @@ datazone_pops2005_2013 <- read_rds("/conf/linkage/output/lookups/Unicode/Populat
   summarise(pop = sum(pop)) %>% 
   mutate(datazone2011 = NA, .after = datazone2001)
 
-# populations 2014 - 2022
-datazone_pops2014_2022 <- read_csv("/conf/linkage/output/lookups/Unicode/Populations/Estimates/DataZone2011_pop_est_2011_2022.csv") %>% 
+# populations 2014 - 2024
+datazone_pops2014_2024 <- read_csv("/conf/linkage/output/lookups/Unicode/Populations/Estimates/DataZone2011_pop_est_2011_2024.csv") %>% 
   select(year, datazone2011, sex, contains("age")) %>%
   filter(year > 2013) %>% 
   mutate(pop = rowSums(select(., contains("age")), na.rm = TRUE)) %>%
@@ -52,7 +52,7 @@ datazone_pops %>%
 # based on year
 simd_2020 <- readRDS(paste0("/conf/linkage/output/",
                             "lookups/Unicode/Deprivation",
-                            "/postcode_2025_1_simd2020v2.rds")) %>%
+                            "/postcode_2026_1_simd2020v2.rds")) %>%
   dplyr::select(pc7, datazone2011, hb2019, hb2019name, simd2020v2_sc_quintile) %>%
   rename(postcode = pc7,
          simd = simd2020v2_sc_quintile,
@@ -150,6 +150,6 @@ hb_pop_simd_data %>%
   group_by(year, simd) %>% 
   summarise(pop = sum(pop)) 
 
-# note that data does not go beyond 2022
+# note that data does not go beyond 2024
 
 write_csv(hb_pop_simd_data, "/conf/quality_indicators/Climate/lookups/simd_pops_by_healthboard.csv")
