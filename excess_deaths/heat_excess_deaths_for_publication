@@ -1,0 +1,550 @@
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# heat_excess_mortality_for_publication.R
+# Jan 2025
+# Ross McDonald 
+# Updated by Bella Tortora - Sep 2025 
+# 
+# Script to calculate excess deaths over 20 degrees, inline 
+# with UKHSA approach. Only including Scotland level excess deaths calculations 
+# for publication.
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+# 1 - Setup ---------------------------------------------------------------
+
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#Libraries
+library(odbc) #load first to avoid masking of certain functions within dplyr
+library(dplyr) # best package for data manipulation and more
+library(magrittr) # for pipes
+library(readr) # for reading in data
+library(janitor) # for cleaning data
+library(tidylog) # for useful in console dplyr messages
+library(stringr) # for working with strings
+library(purrr) # for mapping 
+library(phsmethods) # useful PHS specific functions
+library(ggplot2) # For visualisations
+library(lubridate) # For working with dates
+library(tidyr) # for tidying data
+library(phsstyles)
+library(scales)
+
+
+# Set temperature for comparison now (20 degrees used by UKHSA)
+#~~~~~~~~~~~~~~~~~~~~
+ref_temp <- 20
+
+
+# Read in most recent postcode lookup
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+source(here::here("functions/most_recent_postcode_lookup.R"))
+
+# Call function to read the most recent postcode lookup
+postcode_dir <- readRDS(most_recent_postcode_lookup(postcode_folder)) |>
+  mutate(pc8 = format_postcode(pc8, format="pc8"))
+
+# Source deaths data:
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# Path to the folder with the data
+deaths_data_path <- "/conf/quality_indicators/Climate/data/base_data/all_deaths_data_ephss20_near_ALLcovid/"
+
+# suffix of input data files
+deaths_data_pattern <- "all_deaths_data_nhsboard_vuln_split.csv$"
+
+deaths_data_files <- list.files(path = deaths_data_path,
+                                recursive = TRUE,
+                                pattern = deaths_data_pattern,
+                                full.names = TRUE)
+
+
+# Read in data and rename variables
+deaths_df <- read_csv(deaths_data_files)%>%
+  dplyr::select(-1) %>%
+  dplyr::mutate(date = as.Date(date,format = "%d/%m/%y"),
+                year = as.numeric(year),
+                month = month(date))%>%
+  dplyr::filter(year >2004 & year <2025)
+
+# Source temperature data and extract average (min and maximum to calculate average)
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+met_geo_max2 <- read.csv(paste0("/conf/quality_indicators/Climate/data/ephss_data/Final Weather data/",
+                                "nearest_station/1Jan2013-31Dec2024_MaxTemperature_nearest_station.csv"), skip = 2) %>%
+  rename(max_temperature = Value)
+met_geo_max1 <- read.csv(paste0("/conf/quality_indicators/Climate/data/ephss_data/Final Weather data/",
+                                "nearest_station/1Jan2003-31Dec2012_MaxTemperature_nearest_station.csv"), skip = 2) %>%
+  rename(max_temperature = Value)
+met_geo_min <- read.csv(paste0("/conf/quality_indicators/Climate/data/ephss_data/Final Weather data/",
+                               "nearest_station/1Jan2013-31Dec2024_MinTemperature_nearest_station.csv"), skip = 2) %>%
+  rename(min_temperature = Value)
+met_geo_min2 <- read.csv(paste0("/conf/quality_indicators/Climate/data/ephss_data/Final Weather data/",
+                                "nearest_station/1Jan2003-31Dec2012_MinTemperature_nearest_station.csv"), skip = 2) %>%
+  rename(min_temperature = Value)
+
+# Bind datasets 
+met_geo <- bind_rows(met_geo_max1,met_geo_max2)
+met_geo_min <- bind_rows(met_geo_min,met_geo_min2)
+
+# Combine max and min temperatures, and tidy dataset
+met_geo_combined <- met_geo %>%
+  left_join(
+    met_geo_min,
+    by=c("Latitude", "Longitude", "Site.identifier", "Time"))
+
+met_geo <- met_geo_combined %>%
+  rename(InterZone = Site.identifier) %>%
+  rename(time = Time) %>%
+  mutate(mean_temperature=(max_temperature+min_temperature)/2,
+         year = year(time)) %>%
+  select(-c(Latitude, Longitude))
+
+met_geo$time <- as.POSIXct(met_geo$time, format = "%Y-%m-%d %H:%M:%S", tz = "UTC")
+
+# 2 - Episode extraction - Health board level ------------------------------------------
+
+# Join Temperature with Health board and get average max temp for HB on that day
+met_geo_w_hb <- met_geo %>%
+  left_join(
+    distinct(postcode_dir[ , c("intzone2011", "hb2019name")]),
+    by=c("InterZone"="intzone2011"),
+  ) %>%
+  filter(year %in% c(2005:2025))%>%
+  select(-InterZone) %>%
+  group_by(time, hb2019name) %>%
+  summarise(
+    max_temp_avg=max(mean_temperature) # get average temp across HB for each day
+  ) %>%
+  ungroup()
+
+
+### Calculate episodes for each HB
+# An episode is any day or group of days above 20degrees and the day before and after
+
+# Lazy approached use which assumes no heatwaves in winter
+# Flag days above 20 degrees and arrange by HB and date
+met_geo_w_hb_flagged <- met_geo_w_hb %>%
+  mutate(
+    at_least_20=max_temp_avg>=ref_temp
+  ) %>%
+  arrange(hb2019name, time)
+
+# Find episodes marking each day based on it's temp or previous/next day temp
+episodes_marked <- met_geo_w_hb_flagged %>%
+  mutate(
+    lagged=lag(at_least_20),
+    leaded=lead(at_least_20)
+  ) %>%
+  mutate(episodes=case_when(
+    at_least_20 ~ "HOT",
+    lagged & leaded ~ "HOT",
+    lagged ~ "LAG",
+    leaded ~ "LEAD",
+    .default = "FALSE"
+  ))%>%
+  mutate(time = as.Date(time))
+
+# Remove non episodes and number the episodes
+episodes <- episodes_marked %>%
+  filter(episodes!="FALSE") %>%
+  mutate(
+    episode_number=cumsum(episodes=="LEAD")
+  )
+
+# Heat episodes beginning per year
+episodes_year <- episodes %>%
+  mutate(year=year(time)) %>%
+  select(year, episodes) %>%
+  filter(episodes=="LEAD") %>%
+  group_by(year) %>%
+  summarise(n=n())
+
+# Heat episodes per HB
+episodes_hb <- episodes %>%
+  select(hb2019name, episodes) %>%
+  filter(episodes=="LEAD") %>%
+  group_by(hb2019name) %>%
+  summarise(n=n())
+
+hbs <- tibble(hb2019name = unique(met_geo_w_hb$hb2019name))
+
+episodes_hb <- hbs  %>%
+  left_join(episodes_hb, by = "hb2019name") %>%
+  mutate(n = replace_na(n, 0))
+
+# Heat episodes beginning per year and HB
+episodes_year_hb <- episodes %>%
+  mutate(year=year(time)) %>%
+  select(hb2019name, year, episodes) %>%
+  filter(episodes=="LEAD") %>%
+  group_by(hb2019name, year) %>%
+  summarise(n=n())
+
+
+# 3 - Episodes mosaic plot and trend --------------------------------------
+
+### Episode map for year
+episodes_by_year_plot <- function(year){
+  episodes_year <- episodes_marked %>%
+    mutate(
+      in_episode=ifelse(
+        episodes=="FALSE",
+        FALSE,
+        TRUE
+      )
+    ) %>%
+    filter(
+      year(time)==year,
+      month(time)>4 & month(time)<10
+    ) %>%
+    select(time, hb2019name, max_temp_avg, in_episode) %>%
+    mutate(
+      date=as.Date(time)
+    )
+  
+  plot <- ggplot(episodes_year, aes(x = date, y=hb2019name, fill = in_episode)) +
+    geom_tile(color=NA) +
+    scale_fill_manual(values = c("TRUE" = phs_colours("phs-purple"), "FALSE" = phs_colours("phs-blue-30"))) +  # Change colors for TRUE/FALSE
+    scale_x_date(date_labels = "%b %d", date_breaks = "1 week") +
+    scale_y_discrete(labels=label_wrap(20)) +
+    theme_minimal() +  # Optional: Use minimal theme for cleaner look
+    labs(x = paste("Date (",year,")"), y = "Health Board", fill = "Episode") +
+    theme(
+      axis.text.x = element_text(angle = 45, hjust = 1),
+      axis.ticks.x = element_line(color = "black")
+    ) +  # Optional: Rotate x-axis labels for readability
+    guides(fill = "none")
+  
+  return (plot)
+}
+
+
+# Mosaic plot loop for all years 
+years_list <- as.list(c(2005:2024))
+plots <- purrr:: map(years_list, episodes_by_year_plot)
+
+plots[6]
+
+
+
+(episodes_hb_plot <- ggplot(episodes_hb, aes(x=hb2019name, y=n)) + 
+    geom_bar(stat = "identity", fill=phs_colours("phs-purple")) +
+    labs(y= "Count", x = "Health Board") +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) )
+
+
+
+# 4 - Scotland level ------------------------------------------------------
+
+met_geo_w_hb_scotland_level <- met_geo_w_hb %>%
+  group_by(time) %>%
+  summarise(
+    max_temp_avg=max(max_temp_avg)
+  )
+
+# Flag days above 20 degrees and arrange by HB and date
+met_geo_w_hb_scotland_level_flagged <- met_geo_w_hb_scotland_level %>%
+  mutate(
+    at_least_20=max_temp_avg>=ref_temp
+  ) %>%
+  arrange(time)
+
+# Find episodes marking each day based on it's temp or previous/next day temp
+episodes_marked_scotland_level <- met_geo_w_hb_scotland_level_flagged %>%
+  mutate(
+    lagged=lag(at_least_20),
+    leaded=lead(at_least_20)
+  ) %>%
+  mutate(episodes=case_when(
+    at_least_20 ~ "HOT",
+    lagged & leaded ~ "HOT",
+    lagged ~ "LAG",
+    leaded ~ "LEAD",
+    .default = "FALSE"
+  ))
+
+episodes_scotland <- episodes_marked_scotland_level %>%
+  filter(episodes!="FALSE") %>%
+  mutate(
+    episode_number=cumsum(episodes=="LEAD")
+  )
+
+# Heat episodes beginning per year
+episodes_year_scotland <- episodes_scotland %>%
+  mutate(year=year(time)) %>%
+  select(year, episodes) %>%
+  filter(episodes=="LEAD") %>%
+  group_by(year) %>%
+  summarise(n=n())
+
+(episodes_year_plot <- ggplot(episodes_year_scotland, aes(x=year, y=n)) + 
+    geom_bar(stat = "identity", fill=phs_colours("phs-purple")) +
+    labs(y= "Episode Count", x = "Year") +
+    scale_x_continuous(limits = c(2004, 2025), expand = c(0, 0)) +
+    scale_y_continuous(limits = c(0,15)) +
+    theme_minimal()+
+    theme(axis.line = element_line(color = "black"),
+          plot.margin = margin(t = 10, r = 30, b = 10, l = 10)))
+
+#Days in heat episode per year:
+# Heat episodes beginning per year
+days_in_heat_episodes_year_scotland <- episodes_scotland %>%
+  filter(episodes == "HOT") %>% 
+  mutate(year=year(time)) %>%
+  select(year, episodes) %>%
+  group_by(year) %>%
+  summarise(n=n())
+
+(episodes_year_plot <- ggplot(days_in_heat_episodes_year_scotland, aes(x=year, y=n)) + 
+    geom_bar(stat = "identity", fill=phs_colours("phs-purple")) +
+    labs(y= "No. Heat Episode Days", x = "Year") +
+    scale_x_continuous(limits = c(2004, 2025), expand = c(0, 0)) +
+    theme_minimal()+
+    theme(axis.line = element_line(color = "black"),
+          plot.margin = margin(t = 10, r = 30, b = 10, l = 10)))
+
+
+# daily deaths and merge
+daily_deaths_scotland <- deaths_df %>%
+  group_by(date) %>%
+  summarise(
+    death=sum(death)
+  )
+
+deaths_df_w_episode_scotland <- daily_deaths_scotland %>%
+  left_join(
+    episodes_marked_scotland_level[,c("time", "episodes")],
+    by=c("date"="time")
+  ) %>%
+  drop_na(episodes) %>%
+  arrange(date) %>%
+  mutate(
+    not_in_episode=ifelse(
+      episodes=="FALSE",
+      TRUE,
+      FALSE
+    )
+  ) %>%
+  select(date, death, not_in_episode)
+
+# Calculate the baseline deaths
+# This is total death 14 days before and 14 days after an episode, missing out
+# any days which are part of an episode. It only checks the last/next 28 days,
+# and will use less than 14 days if needed
+deaths_df_w_episode_scotland <- deaths_df_w_episode_scotland %>%
+  mutate(
+    last_14_days_deaths = sapply(1:n(), function(i){
+      start_idx <- max(1, i-28)
+      valid_indices <- which(not_in_episode[start_idx:(i-1)])+(start_idx-1)
+      valid_values <- death[valid_indices]
+      sum(tail(valid_values,14))
+    }),
+    last_14_days_count = sapply(1:n(), function(i){
+      start_idx <- max(1, i-28)
+      sum(not_in_episode[start_idx:(i-1)])
+    }),
+    next_14_days_deaths = sapply(1:n(), function(i){
+      end_idx <- min(n(), i+28)
+      valid_indices <- which(not_in_episode[(i+1):end_idx])+i
+      valid_values <- death[valid_indices]
+      sum(head(valid_values,14))
+    }),
+    next_14_days_count = sapply(1:n(), function(i){
+      end_idx <- min(n(), i+28)
+      sum(not_in_episode[(i+1):end_idx])
+    }),
+  ) %>%
+  mutate(
+    last_14_days_count=ifelse(
+      last_14_days_count<14,
+      last_14_days_count,
+      14
+    ),
+    next_14_days_count=ifelse(
+      next_14_days_count<14,
+      next_14_days_count,
+      14
+    )
+  )
+
+# Join deaths into episodes
+episodes_scotland_deaths <- episodes_scotland %>%
+  left_join(
+    deaths_df_w_episode_scotland[ , c("date", "death", "last_14_days_deaths",
+                                      "last_14_days_count", "next_14_days_deaths",
+                                      "next_14_days_count")],
+    by=c("time"="date")
+  )
+
+### Transform Dataset
+# Summarise data for each episode
+episodes_scotland_deaths_transform <- episodes_scotland_deaths %>%
+  group_by(episode_number) %>%
+  summarise(
+    length=n(),
+    start_date=first(time),
+    end_date=last(time),
+    deaths=sum(death),
+    last_14_days_deaths=first(last_14_days_deaths),
+    next_14_days_deaths=last(next_14_days_deaths),
+    last_14_days_count=first(last_14_days_count),
+    next_14_days_count=last(next_14_days_count),
+    highest_temp=max(max_temp_avg)
+  )
+
+
+### Calculate excess deaths
+excess_deaths_scotland <- episodes_scotland_deaths_transform %>%
+  mutate(
+    avg_daily_deaths=deaths/length,
+    avg_baseline_deaths=(last_14_days_deaths+next_14_days_deaths)/(last_14_days_count+next_14_days_count),
+    avg_daily_excess_deaths=avg_daily_deaths-avg_baseline_deaths
+  )
+
+### Confidence intervals
+# Calculate an overdispersion parameter phi for summer deaths outside of heat episodes. We do this by:
+# a.	excluding any heat episode days from the daily deaths series
+# b.	calculating Variance/Mean of daily deaths for each month May to September
+# c.	averaging the five values from May to September
+
+ci_deaths_scotland <- deaths_df_w_episode_scotland %>%
+  select(date, death, not_in_episode) %>%
+  mutate(month=month(date), year=year(date)) %>%
+  filter(
+    not_in_episode,
+    month>4 & month<10) %>%
+  group_by(year, month) %>%
+  summarise(
+    mean=mean(death),
+    variance=var(death)
+  ) %>%
+  group_by(year) %>%
+  summarise(
+    ci_mean=mean(mean),
+    ci_variance=mean(variance)
+  )
+
+
+## Add in CI 
+ed_w_ci_scotland <- excess_deaths_scotland %>%
+  mutate(
+    year=year(start_date)
+  ) %>%
+  left_join(
+    ci_deaths_scotland[,],
+    by=c("year"="year")
+  ) %>%
+  mutate(
+    var_heat_episode=avg_daily_deaths*ci_mean/length,
+    var_baseline=avg_baseline_deaths*ci_mean/(last_14_days_count+next_14_days_count),
+    se=sqrt(var_heat_episode+var_baseline),
+    ci=1.96*se,
+    excess=avg_daily_excess_deaths*length,
+    lower_bound=excess-ci,
+    upper_bound=excess+ci
+  )
+
+episode_count <- ed_w_ci_scotland %>% count(length)
+all_lengths <- min(episode_count$length):max(episode_count$length)
+(episode_length_plot <- ggplot(episode_count, aes(x=factor(length, levels = all_lengths), y=n)) +
+    geom_bar(stat = "identity", fill=phs_colours("phs-purple")) +
+    scale_x_discrete(drop = FALSE) +
+    labs(y= "Count", x = "Length of Episode") +
+    theme_minimal())
+
+#### 2023 episodes analysis
+episodes_2023_scotland <- episodes_marked_scotland_level %>%
+  mutate(
+    in_episode=ifelse(
+      episodes=="FALSE",
+      FALSE,
+      TRUE
+    )
+  ) %>%
+  filter(
+    year(time)==2023,
+    month(time)>4 & month(time)<10
+  ) %>%
+  select(time, max_temp_avg, in_episode) %>%
+  mutate(
+    date=as.Date(time)
+  )
+
+### Function to plot episodes 
+episode_plot <- function(episodes_year){
+
+    healthboard_data <- ed_w_ci_scotland %>%
+      filter(
+        year(start_date)==episodes_year
+      ) %>%
+      mutate(
+        episode_number=row_number()
+      )
+  
+  healthboard_plot_info <- healthboard_data %>%
+    # mutate(
+    #   date_key=paste(
+    #     paste(format(start_date, format = "%d"), format(start_date, format = "%B"), sep=" "), 
+    #     paste(format(end_date, format = "%d"), format(end_date, format = "%B"), sep=" "),  
+    #     sep=" - ")
+    #   ) %>%
+    select(episode_number, excess, lower_bound, upper_bound) %>%
+    mutate(
+      episode_number=as.character(episode_number)
+    ) %>%
+    add_row(
+      episode_number="Overall",
+      excess=sum(healthboard_data$excess),
+      lower_bound=excess-(1.96*(sqrt(mean(healthboard_data$var_heat_episode)+mean(healthboard_data$var_baseline)))),
+      upper_bound=excess+(1.96*(sqrt(mean(healthboard_data$var_heat_episode)+mean(healthboard_data$var_baseline))))
+    )
+  
+  healthboard_plot <- ggplot(healthboard_plot_info, aes(x = episode_number, y = excess)) +
+    geom_col(fill = phs_colours("phs-blue"), color = "black") +  # Plot bars with specified color
+    geom_errorbar(aes(ymin = lower_bound, ymax = upper_bound), width = 0.2) +  # Add error bars for CI
+    geom_text(aes(label = round(excess,0)), vjust = -0.3, hjust=-0.3) +
+    labs(x = "Episode", y = "Excess Deaths") +
+    #scale_x_continuous(breaks = seq(min(nhs_lothian_2023_plot_info$episode_number), max(nhs_lothian_2023_plot_info$episode_number), by = 1)) +
+    theme_minimal()
+  
+  return (healthboard_plot)
+}
+
+# Episode plot loop for all years 
+# Use same years_list as earlier in script
+ep_plots <- purrr:: map(years_list, episode_plot)
+
+ep_plots[20]
+
+# Extract Overall excess deaths per year for ggplot
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+overall <- ed_w_ci_scotland %>%
+  mutate(
+    year = year(start_date),
+    episode_number=row_number()
+  )%>%
+  #select(year, episode_number, excess, lower_bound, upper_bound) %>%
+  mutate(
+    episode_number=as.character(episode_number)
+  ) %>%
+  group_by(year) %>%
+  summarise(
+    episode_number = "Overall",
+    excess = sum(excess),
+    lower_bound = sum(excess) - 1.96 * sqrt(mean(var_heat_episode) + mean(var_baseline)),
+    upper_bound = sum(excess) + 1.96 * sqrt(mean(var_heat_episode) + mean(var_baseline))
+  )
+
+
+(overall_ed_plot <- ggplot(overall, aes(x = year, y = excess)) +
+  geom_ribbon(aes(ymin = lower_bound, ymax = upper_bound), fill = phs_colors("phs-blue-30"),
+              alpha = 0.5, width = 0.2) +  # Add error bars for CI
+  geom_point(color = phs_colours("phs-blue")) +  # Plot bars with specified color
+  geom_line(color = phs_colours("phs-blue"))+
+  geom_text(aes(label = round(excess,0)), vjust = -0.3, hjust=-0.3) +
+  labs(x = "Year", y = "Excess Deaths") +
+  scale_x_continuous(limits = c(2005, 2025), expand = c(0, 0)) +  theme_minimal()+
+    theme(
+      axis.line = element_line(color = "black"),
+      plot.margin = margin(t = 10, r = 30, b = 10, l = 10)
+    ))
+

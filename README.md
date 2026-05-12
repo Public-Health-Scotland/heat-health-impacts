@@ -8,7 +8,6 @@ This repository contains the code used by the PHS Climate Analyst team to run a 
 
 Also included is the calculation and analysis of excess deaths during heat episodes.
 
-Note that there are references to hospitalisations in some of the scripts contained here. This is due to the team's ongoing analysis of these in relation to climate.
 
 ## Layout
 Each folder is explained below:
@@ -20,7 +19,7 @@ Contains scripts for linking climate data (e.g. regional temperatures) from the 
 Contains the code used in the DLNM, across various scripts.
 
 - **excess_deaths**:
-Contains the code and Rmd files for calculating and reporting excess deaths during heat episodes.
+Contains the code for calculating and reporting excess deaths during heat episodes.
 
 - **functions**:
 Contains various functions used for wrangling data and summarising and displaying results.
