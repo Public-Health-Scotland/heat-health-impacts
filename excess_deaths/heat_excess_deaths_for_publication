@@ -29,7 +29,7 @@ library(phsstyles)
 library(scales)
 
 
-# Set temperature for comparison now (20 degrees used by UKHSA, 18 degrees = our RI threshold)
+# Set temperature for comparison now (20 degrees used by UKHSA)
 #~~~~~~~~~~~~~~~~~~~~
 ref_temp <- 20
 
