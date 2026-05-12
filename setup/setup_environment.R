@@ -21,6 +21,9 @@ library(lubridate) # For working with dates
 library(tidyr) # for tidying data
 library(testthat) # for data-checking tests within scripts
 
+#Note: to install geospatial packages see the script geospatial_install.R
+
+
 # 2 - arguments -----------------------------------------------------------
 
 # keep only the data you would like read in uncommented and check comma placement
@@ -43,8 +46,8 @@ climate_folder <- "/conf/quality_indicators/Climate/"
 #postcode_dir <- readRDS(most_recent_postcode_lookup(postcode_folder)) |>
 #  mutate(pc8 = format_postcode(pc8, format="pc8"))
 
-# Read in 2024_2 postcode directory
-postcode_dir <- readRDS("/conf/linkage/output/lookups/Unicode/Geography/Scottish Postcode Directory/Scottish_Postcode_Directory_2025_1.rds") %>% 
+# Read in 2025_1 postcode directory
+postcode_dir <- readRDS("/conf/linkage/output/lookups/Unicode/Geography/Scottish Postcode Directory/Scottish_Postcode_Directory_2026_1.rds") %>% 
   mutate(pc8 = format_postcode(pc8, format="pc8"))
 
 
@@ -57,8 +60,8 @@ hospitals <- read.csv(paste0("https://www.opendata.nhs.scot/dataset/",
 # using previous census estimates:
 
 pop_iz1 <- readRDS(paste0("/conf/linkage/output/lookups/Unicode/Populations/Estimates",
+                      "/IntZone2011_pop_est_5year_agegroups_2011_2024.rds"))
 
-                      "/IntZone2011_pop_est_5year_agegroups_2011_2022.rds"))
 pop_iz2 <- readRDS(paste0("/conf/linkage/output/lookups/Unicode/Populations/Estimates",
                          "/IntZone2011_pop_est_5year_agegroups_2001_2010.rds"))
 

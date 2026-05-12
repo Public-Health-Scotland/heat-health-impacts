@@ -29,7 +29,6 @@ vuln_group <- "All" # "All", "1", "2", "3", "4", "5", "1 & 2", "4 & 5"
 cause_folder <- to_snake_case(cause)
 
 results_folder <- paste(
-  "test",
   to_snake_case(event),
   to_snake_case(geog),
   "by", to_snake_case(vuln_breakdown),
@@ -45,7 +44,7 @@ if(vuln_breakdown == "Deprivation index"){
 
 # Define full path
 results_filepath <- file.path(
-  "/conf/quality_indicators/Climate/data/dlnm_results/sliding_window_models",
+  "/conf/quality_indicators/Climate/data/dlnm_results",
   cause_folder, results_folder
 )
 
@@ -76,9 +75,7 @@ if (dir.exists(results_filepath) && length(list.files(results_filepath)) > 0) {
   att_rates_scotland <- dlnm_results[5][[1]] #  attributable rates across Scotland for each year
   att_nums_region <- dlnm_results[6][[1]] # attributable numbers for each region and each year
   att_rates_region <- dlnm_results[7][[1]]  #  attributable rates for each region and each year
-  aic <- dlnm_results[8][[1]] # Akaike's An Information Criterion
-  event_count_summary <- dlnm_results[9][[1]] # dataframe of total counts by e.g. age, sex, simd
-  model_residuals <- dlnm_results[10][[1]] # model residuals which can be put into a boxplot
+  event_count_summary <- dlnm_results[8][[1]] # dataframe of total counts by e.g. age, sex, simd
   
   # Save results as CSV files
   write_csv(temp_thresholds, paste0(results_filepath, "/temp_thresholds.csv"))
@@ -118,8 +115,16 @@ rr_plot <- ggplot() +
   geom_ribbon(data = rr_data, aes(x = temp_c, ymin = lower, ymax = upper),
               fill = phs_colors("phs-rust-30")) +  # Confidence interval
   geom_line(data = rr_data, aes(x = temp_c, y = rr), color = "black", linewidth = 1) +
-  geom_vline(xintercept = temp_thresholds %>% filter(region == region_filter) %>% pull(risk_increase_temp), linetype = "solid", color = phs_colors("phs-blue")) +
-  geom_vline(xintercept = temp_thresholds %>% filter(region == region_filter) %>% pull(high_risk_temp), linetype = "solid", color = phs_colors("phs-rust")) +
+  (if(!is.na(temp_thresholds %>% filter(region == region_filter) %>% pull(risk_increase_temp))){
+      geom_vline(xintercept = temp_thresholds %>% filter(region == region_filter) %>% pull(risk_increase_temp), linetype = "solid", color = phs_colors("phs-blue"))
+    }else{
+      NULL
+    }) + 
+    (if(!is.na(temp_thresholds %>% filter(region == region_filter) %>% pull(high_risk_temp))){
+      geom_vline(xintercept = temp_thresholds %>% filter(region == region_filter) %>% pull(high_risk_temp), linetype = "solid", color = phs_colors("phs-rust"))
+    }else{
+      NULL
+    }) +
   geom_vline(xintercept = heatwave_day, linetype = "dashed", color = phs_colors("phs-purple")) +
   ## Horizontal RR = 1 Reference Lines
   geom_hline(yintercept = 1, linetype = "solid", color = "black")+
@@ -197,6 +202,17 @@ plot_AR_risk_inc <- ar_data %>%
                          "°C)"),
        x = "\nYear",
        y = y_label) +
+  # add a label for the cases when there are no attributable events/no threshold
+  (if(is.na(temp_thresholds %>% filter(region == region_filter) %>% pull(risk_increase_temp))){
+    geom_label( 
+      aes(x = median(year), y = y_limit_upper/2,
+          label = "No threshold due to RR lower CI not increasing above 1\nin model, therefore no attributable events"),
+      fill = "white", colour = "black",
+      label.size = 0.5, size = 4
+    )
+  }else{
+    NULL
+  }) +
   theme_minimal() +
   theme(plot.title = element_text(size = 10),
         axis.title.y = element_text(size = 10),
@@ -204,8 +220,10 @@ plot_AR_risk_inc <- ar_data %>%
         axis.text.y = element_text(size = 8),
         axis.line = element_line(color = "black"))
 
-ggsave(plot_AR_risk_inc, filename = paste0(results_filepath, "/ar_plot_risk_increase.png"),
-       width = 8, height = 4)
+suppressWarnings( # suppress warning about using geom_label, it's fine
+    ggsave(plot_AR_risk_inc, filename = paste0(results_filepath, "/ar_plot_risk_increase.png"),
+           width = 8, height = 4)
+  )
 
 plot_AR_high_risk <- ar_data %>%
   # filter(regnames == region) %>%
@@ -220,6 +238,17 @@ plot_AR_high_risk <- ar_data %>%
                       "°C)"),
     x = "\nYear",
     y = y_label) +
+  # add a label for the cases when there are no attributable events/no threshold
+  (if(is.na(temp_thresholds %>% filter(region == region_filter) %>% pull(high_risk_temp))){
+    geom_label( 
+      aes(x = median(year), y = y_limit_upper/2,
+          label = "No threshold due to RR not reaching 1.1\nin model, therefore no attributable events"),
+      fill = "white", colour = "black",
+      label.size = 0.5, size = 4
+    )
+  }else{
+     NULL
+  }) +
   theme_minimal() +
   theme(plot.title = element_text(size = 10),
         axis.title.y = element_text(size = 10),
@@ -227,8 +256,10 @@ plot_AR_high_risk <- ar_data %>%
         axis.text.y = element_text(size = 8),
         axis.line = element_line(color = "black"))
 
-ggsave(plot_AR_high_risk, filename = paste0(results_filepath, "/ar_plot_high_risk.png"),
-       width = 8, height = 4)
+  suppressWarnings( # suppress warning about using geom_label, it's fine
+    ggsave(plot_AR_high_risk, filename = paste0(results_filepath, "/ar_plot_high_risk.png"),
+         width = 8, height = 4)
+  )
 
 
 plot_AR_ri_hr <-  ar_data %>%
@@ -275,7 +306,9 @@ plot_AR_heatwave <- ar_data %>%
         axis.text.y = element_text(size = 8),
         axis.line = element_line(color = "black"))
 
-combined_ar <- grid.arrange(plot_AR_risk_inc, plot_AR_high_risk, plot_AR_heatwave, ncol = 1)
+suppressWarnings( # suppress warning about using geom_label, it's fine
+  combined_ar <- grid.arrange(plot_AR_risk_inc, plot_AR_high_risk, plot_AR_heatwave, ncol = 1)
+)
 
 ggsave(combined_ar, filename = paste0(results_filepath, "/ar_plot.png"),
        width = 8, height = 6)
@@ -296,6 +329,17 @@ plot_AN_risk_inc <- an_data %>%
                          "°C)"),
        x = "\nYear",
        y = y_label) +
+ # add a label for the cases when there are no attributable events/no threshold
+ (if(is.na(temp_thresholds %>% filter(region == region_filter) %>% pull(risk_increase_temp))){
+    geom_label( 
+      aes(x = median(year), y = y_limit_upper_an/2,
+          label = "No threshold due to RR lower CI not increasing above 1\nin model, therefore no attributable events"),
+      fill = "white", colour = "black",
+       label.size = 0.5, size = 4
+     )
+  }else{
+    NULL
+  }) +
   theme_minimal() +
   theme(plot.title = element_text(size = 10),
         axis.title.y = element_text(size = 10),
@@ -303,8 +347,10 @@ plot_AN_risk_inc <- an_data %>%
         axis.text.y = element_text(size = 8),
         axis.line = element_line(color = "black"))
 
-ggsave(plot_AN_risk_inc, filename = paste0(results_filepath, "/an_plot_risk_increase.png"),
-       width = 8, height = 4)
+  suppressWarnings( # suppress warning about using geom_label, it's fine
+    ggsave(plot_AN_risk_inc, filename = paste0(results_filepath, "/an_plot_risk_increase.png"),
+           width = 8, height = 4)
+  )
 
 plot_AN_high_risk <- an_data %>%
   # filter(regnames == region) %>%
@@ -319,6 +365,17 @@ plot_AN_high_risk <- an_data %>%
                       "°C)"),
     x = "\nYear",
     y = y_label) +
+ # add a label for the cases when there are no attributable events/no threshold
+  (if(is.na(temp_thresholds %>% filter(region == region_filter) %>% pull(high_risk_temp))){
+    geom_label( 
+      aes(x = median(year), y = y_limit_upper_an/2,
+          label = "No threshold due to RR not reaching 1.1\nin model, therefore no attributable events"),
+      fill = "white", colour = "black",
+      label.size = 0.5, size = 4
+    )
+  }else{
+    NULL
+  }) +
   theme_minimal() +
   theme(plot.title = element_text(size = 10),
         axis.title.y = element_text(size = 10),
@@ -326,8 +383,10 @@ plot_AN_high_risk <- an_data %>%
         axis.text.y = element_text(size = 8),
         axis.line = element_line(color = "black"))
 
-ggsave(plot_AN_high_risk, filename = paste0(results_filepath, "/an_plot_high_risk.png"),
-       width = 8, height = 4)
+  suppressWarnings( # suppress warning about using geom_label, it's fine
+    ggsave(plot_AN_high_risk, filename = paste0(results_filepath, "/an_plot_high_risk.png"),
+         width = 8, height = 4)
+  )
 
 plot_AN_heatwave <- an_data %>%
   # filter(regnames == region) %>%
@@ -347,8 +406,9 @@ plot_AN_heatwave <- an_data %>%
         axis.text.y = element_text(size = 8),
         axis.line = element_line(color = "black"))
 
-combined_an <- grid.arrange(plot_AN_risk_inc, plot_AN_high_risk, plot_AN_heatwave, ncol = 1)
-
+  suppressWarnings( # suppress warning about using geom_label, it's fine
+    combined_an <- grid.arrange(plot_AN_risk_inc, plot_AN_high_risk, plot_AN_heatwave, ncol = 1)
+  )
 ggsave(combined_an, filename = paste0(results_filepath, "/an_plot.png"),
        width = 8, height = 6)
 
